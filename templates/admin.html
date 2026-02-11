@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Administration</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Administration - {{ username }}</h1>
+    <p><a href="{{ url_for('logout') }}">Se déconnecter</a></p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <p class="{{ category }}">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Section : compteur -->
+    <h2>Compteur de fiches</h2>
+    <p>Valeur actuelle : <strong>{{ data.counter }}</strong></p>
+    <form action="{{ url_for('update_counter') }}" method="post">
+        <label for="counter">Nouvelle valeur :</label>
+        <input type="number" id="counter" name="counter" value="{{ data.counter }}" required>
+        <button type="submit">Modifier</button>
+    </form>
+
+    <!-- Section : tableau des PV -->
+    <h2>Liste des PV</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Caïdat</th>
+                <th>Statut</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in data.entries %}
+            <tr>
+                <td>{{ entry.date }}</td>
+                <td>{{ entry.caidat }}</td>
+                <td>
+                    <form action="{{ url_for('update_status', entry_id=entry.id) }}" method="post" style="display:inline;">
+                        <select name="status">
+                            <option value="traité" {% if entry.status == 'traité' %}selected{% endif %}>Traité</option>
+                            <option value="en cours" {% if entry.status == 'en cours' %}selected{% endif %}>En cours</option>
+                            <option value="non traité" {% if entry.status == 'non traité' %}selected{% endif %}>Non traité</option>
+                        </select>
+                        <button type="submit">Mettre à jour</button>
+                    </form>
+                </td>
+                <td>
+                    <form action="{{ url_for('delete_entry', entry_id=entry.id) }}" method="post" style="display:inline;" onsubmit="return confirm('Supprimer cette entrée ?');">
+                        <button type="submit">Supprimer</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4">Aucun PV enregistré.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Formulaire d'ajout -->
+    <h2>Ajouter un PV</h2>
+    <form action="{{ url_for('add_entry') }}" method="post">
+        <label for="date">Date :</label>
+        <input type="date" id="date" name="date" required><br><br>
+        <label for="caidat">Caïdat :</label>
+        <input type="text" id="caidat" name="caidat" required><br><br>
+        <button type="submit">Ajouter</button>
+    </form>
+</body>
+</html>

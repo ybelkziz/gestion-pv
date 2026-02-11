@@ -1,0 +1,17 @@
+{
+    "counter": 3339,
+    "entries": [
+        {
+            "id": 1,
+            "date": "2025-11-12",
+            "caidat": "Taouz",
+            "status": "traité"
+        },
+        {
+            "id": 2,
+            "date": "2026-02-03",
+            "caidat": "gourrama",
+            "status": "traité"
+        }
+    ]
+}

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PV Traités - Gestion publique</title>
+    <!-- Google Fonts : Poppins -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome 6 (gratuit) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Notre fichier CSS personnel -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- En-tête avec dégradé -->
+    <header class="hero">
+        <div class="hero-content">
+            <h1><i class="fas fa-file-alt"></i> PV traités</h1>
+            <p>Consultez en temps réel l'avancement des procès-verbaux</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Section : Compteur de fiches -->
+        <section class="counter-section">
+            <div class="counter-card">
+                <i class="fas fa-chart-line counter-icon"></i>
+                <div class="counter-info">
+                    <h2>Nombre de fiches atteint</h2>
+                    <span class="counter-value">{{ counter }}</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section : Tableau des PV traités -->
+        <section class="pv-section">
+            <h2><i class="fas fa-check-circle"></i> Procès-verbaux traités</h2>
+            {% if traites %}
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Caïdat</th>
+                                <th>Date du PV</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pv in traites %}
+                            <tr>
+                                <td><i class="fas fa-map-marker-alt"></i> {{ pv.caidat }}</td>
+                                <td><i class="far fa-calendar-alt"></i> {{ pv.date }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-inbox fa-3x"></i>
+                    <p>Aucun PV traité pour le moment.</p>
+                </div>
+            {% endif %}
+        </section>
+
+        <!-- Lien vers l'espace administrateur -->
+        <div class="admin-link">
+            <a href="{{ url_for('login') }}" class="btn-admin">
+                <i class="fas fa-lock"></i> Espace administrateur
+            </a>
+        </div>
+    </main>
+
+    <!-- Pied de page -->
+    <footer>
+        <p>&copy; 2026 - Gestion des PV</p>
+    </footer>
+</body>
+</html>
