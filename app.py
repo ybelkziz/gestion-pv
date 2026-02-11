@@ -4,7 +4,7 @@ import os
 
 app = Flask(__name__)
 # Clé secrète pour signer les sessions (obligatoire pour utiliser session)
-app.secret_key = os.environ.get('SECRET_KEY', 'fallback_secret_key_for_dev')
+app.secret_key = os.environ.get('SECRET_KEY', 'fallback_key_pour_dev_secret')
 
 # ------------------------------------------------------------
 # GESTION DU FICHIER JSON (lecture/écriture)
