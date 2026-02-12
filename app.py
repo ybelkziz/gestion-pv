@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from sqlalchemy import create_engine, Column, Integer, String, Enum
+from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
@@ -33,7 +34,7 @@ class PV(Base):
     id = Column(Integer, primary_key=True)
     date = Column(String)
     caidat = Column(String)
-    status = Column(Enum('traité', 'en cours', 'non traité'), default='non traité')
+    status = Column(SQLAlchemyEnum('traité', 'en cours', 'non traité', name='status_enum'), default='non traité')
 
 # ------------------------------------------------------------
 # MODÈLE POUR LE COMPTEUR (une seule ligne)
@@ -50,8 +51,8 @@ Base.metadata.create_all(bind=engine)
 # AUTHENTIFICATION
 # ------------------------------------------------------------
 USERS = {
-    "youssouf": "belkziz",
-    "hajar": "benlamine"
+    "youssouf": "admin2026",
+    "hajar": "admin2026"
 }
 
 # ------------------------------------------------------------
