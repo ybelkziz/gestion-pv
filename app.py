@@ -13,16 +13,23 @@ app.secret_key = os.environ.get('SECRET_KEY', 'cle_secrete_pour_dev')
 # ------------------------------------------------------------
 # En local (PyCharm) : on utilise SQLite (fichier local)
 # Sur Render : on utilise PostgreSQL (via la variable d'environnement)
-if 'RENDER' in os.environ:
-    # Mode production (Render)
-    SQLALCHEMY_DATABASE_URL = os.environ.get('DATABASE_URL')
-    # Render fournit une URL qui commence par postgres://, SQLAlchemy attend postgresql://
-    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-else:
-    # Mode développement (local)
-    SQLALCHEMY_DATABASE_URL = 'sqlite:///gestion_pv.db'
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    # Mode développement local
+    DATABASE_URL = 'sqlite:///gestion_pv.db'
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+# Petit correctif pour Render (qui utilise 'postgres://' au lieu de 'postgresql://')
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+
+# Pour PostgreSQL, on ajoute le paramètre search_path pour utiliser le schéma public
+if DATABASE_URL.startswith('postgresql://'):
+    if '?' in DATABASE_URL:
+        DATABASE_URL += '&options=--search_path%3Dpublic'
+    else:
+        DATABASE_URL += '?options=--search_path%3Dpublic'
+
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
