@@ -22,12 +22,6 @@ if not DATABASE_URL:
 if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-# Pour PostgreSQL, on ajoute le paramètre search_path pour utiliser le schéma public
-if DATABASE_URL.startswith('postgresql://'):
-    if '?' in DATABASE_URL:
-        DATABASE_URL += '&options=--search_path%3Dpublic'
-    else:
-        DATABASE_URL += '?options=--search_path%3Dpublic'
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
