@@ -732,3 +732,7 @@ select option { background: var(--bg-card); }
   font-size: .7rem !important; padding: 2px 4px;
 }
 .btn-reset-caidat:hover { opacity: 1 !important; color: var(--amber) !important; }
+
+/* ── SIDEBAR DANGER LINK ─────────────────────────────────── */
+.nav-danger { color: rgba(244,63,94,.6) !important; }
+.nav-danger:hover { background: rgba(244,63,94,.08) !important; color: #fb7185 !important; }

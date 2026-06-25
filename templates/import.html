@@ -127,7 +127,7 @@
       <form method="POST" action="{{ url_for('import_excel') }}" id="confirmForm">
         <input type="hidden" name="step" value="2">
         <input type="hidden" name="filename" value="{{ filename }}">
-        <input type="hidden" name="df_data" value="{{ df_json }}">
+        <input type="hidden" name="file_token" value="{{ file_token }}">
 
         <div class="caidat-picker">
           <div class="caidat-picker-title">
@@ -136,8 +136,8 @@
 
           <div class="field" style="max-width:380px">
             <label for="caidat_import">Caïdat <span class="required-star">*</span></label>
-            <select id="caidat_import" name="caidat_import" required onchange="updateCaidatPreview(this)">
-              <option value="">— Sélectionner un caïdat —</option>
+            <select id="caidat_import" name="caidat_import" onchange="updateCaidatPreview(this)">
+              <option value="" selected>— À compléter ultérieurement —</option>
               <optgroup label="Hajar (N° 1–35)">
                 {% for c in caidats_hajar %}
                 <option value="{{ c }}">{{ c }}</option>
@@ -158,16 +158,20 @@
             </div>
           </div>
 
-          <div class="import-warning">
+          <div class="import-warning" id="importWarning">
             ⚠ Ce caïdat sera appliqué à <strong>toutes les {{ nb_nouvelles }} fiche(s)</strong> de ce fichier.
             Assurez-vous que toutes les fiches appartiennent bien au même caïdat.
+          </div>
+          <div class="import-warning" id="importWarningEmpty" style="display:none;border-color:rgba(148,163,184,.3);color:#94a3b8">
+            ℹ Aucun caïdat sélectionné — les fiches seront importées <strong>sans caïdat</strong>
+            et pourront être complétées depuis le tableau des fiches.
           </div>
         </div>
 
         <div class="form-actions">
           <a href="{{ url_for('import_excel') }}" class="btn btn-outline">← Recommencer</a>
-          <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
-            ✓ Importer {{ nb_nouvelles }} fiche(s) dans "{{ filename }}"
+          <button type="submit" class="btn btn-primary" id="submitBtn">
+            ✓ Importer {{ nb_nouvelles }} fiche(s)
           </button>
         </div>
       </form>
@@ -176,7 +180,7 @@
   {% endif %}
 
   <!-- Zone de danger -->
-  <div class="card danger-zone-card">
+  <div class="card danger-zone-card" id="danger">
     <div class="card-header" style="color:#fb7185;border-color:rgba(244,63,94,.2)">
       ⚠ Zone de danger
     </div>
@@ -305,21 +309,29 @@ const CAIDATS_INFO = {
 };
 
 function updateCaidatPreview(sel) {
-  const nom = sel.value;
-  const box = document.getElementById('caidatPreview');
-  const btn = document.getElementById('submitBtn');
+  const nom    = sel.value;
+  const box    = document.getElementById('caidatPreview');
+  const warnOk = document.getElementById('importWarning');
+  const warnEmpty = document.getElementById('importWarningEmpty');
+
   if (!nom || !CAIDATS_INFO[nom]) {
+    // Caïdat vide = "à compléter" — autorisé mais on informe
     box.style.display = 'none';
-    btn.disabled = true;
+    if (warnOk)    warnOk.style.display    = 'none';
+    if (warnEmpty) warnEmpty.style.display = 'block';
     return;
   }
+
+  // Caïdat sélectionné
+  if (warnOk)    warnOk.style.display    = 'block';
+  if (warnEmpty) warnEmpty.style.display = 'none';
+
   const d = CAIDATS_INFO[nom];
   document.getElementById('prevProvince').textContent = '📍 ' + d.province;
   document.getElementById('prevRegion').textContent   = '🗺 ' + d.region;
   document.getElementById('prevResp').textContent     = '👤 ' + d.resp;
   document.getElementById('prevResp').className = 'info-pill resp-pill agent-' + d.resp.toLowerCase();
   box.style.display = 'flex';
-  btn.disabled = false;
 }
 </script>
 {% endblock %}

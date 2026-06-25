@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+import tempfile, uuid
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.ext.declarative import declarative_base
@@ -482,22 +483,27 @@ def api_status(fiche_id):
 @login_required
 def api_caidat(fiche_id):
     """Met à jour le caïdat d'une fiche via AJAX (utile après import)."""
-    data     = request.get_json()
+    data       = request.get_json()
     new_caidat = data.get('caidat', '').strip()
-    if new_caidat not in ALL_CAIDATS:
-        return jsonify({'ok': False, 'error': f'Caïdat inconnu : {new_caidat}'}), 400
+
     db = SessionLocal()
     fi = db.query(Fiche).filter_by(id=fiche_id).first()
     if not fi:
         db.close()
         return jsonify({'ok': False, 'error': 'Fiche introuvable'}), 404
-    # Cas spécial : valeur vide = remettre "à compléter"
+
+    # Cas spécial __reset__ : remettre "à compléter" — testé EN PREMIER
     if new_caidat == '__reset__':
         fi.caidat      = ''
         fi.responsable = ''
         db.commit()
         db.close()
         return jsonify({'ok': True, 'caidat': '', 'reset': True})
+
+    # Vérifier que le caïdat existe bien dans la liste officielle
+    if new_caidat not in ALL_CAIDATS:
+        db.close()
+        return jsonify({'ok': False, 'error': f'Caïdat inconnu : {new_caidat}'}), 400
 
     # Le responsable est déduit du caïdat (source officielle : fichier Excel)
     responsable = CAIDAT_RESPONSABLE.get(new_caidat, '')
@@ -531,93 +537,119 @@ def _build_logs(rows):
              'imported_at': fmt(l.imported_at)}
             for l in rows]
 
-@app.route('/import', methods=['GET','POST'])
+# Dossier temporaire pour stocker les fichiers Excel entre les deux étapes
+UPLOAD_TMP = os.path.join(os.path.dirname(__file__), 'tmp_imports')
+os.makedirs(UPLOAD_TMP, exist_ok=True)
+
+
+def _process_df_row(row, caidat_choisi, responsable_import, db, counter_val):
+    """Traite une ligne du DataFrame et l'insère en base. Retourne 'ok','skip','exists'."""
+    raw = row.get('fiche_N_') or row.get('fiche_N')
+    try:
+        is_na = pd.isna(raw)
+    except:
+        is_na = not str(raw).strip()
+    if is_na:
+        return 'skip'
+
+    num = int(float(raw))
+    if db.query(Fiche).filter_by(fiche_numero=num).first():
+        return 'exists'
+
+    dpv = row.get('date_pv', '')
+    if pd.notna(dpv) and isinstance(dpv, (int, float)):
+        dpv = (pd.Timestamp('1899-12-30') + pd.Timedelta(days=int(dpv))).strftime('%d/%m/%Y')
+    else:
+        dpv = str(dpv).strip() if pd.notna(dpv) else ''
+
+    acc      = 'oui' if str(row.get('accord', 'non')).strip().lower() == 'oui' else 'non'
+    f100_val = str(row.get('f100') or '').strip()
+
+    def gf(k1, k2=None):
+        v = row.get(k1) or (row.get(k2) if k2 else None)
+        try: return float(v) if v is not None and pd.notna(v) else None
+        except: return None
+
+    def gi(k1, k2=None, d=0):
+        v = row.get(k1) or (row.get(k2) if k2 else None)
+        try: return int(float(v)) if v is not None and pd.notna(v) else d
+        except: return d
+
+    obs_raw = str(row.get('observation') or row.get('observatio') or '').strip()
+    if obs_raw in ('<Null>', 'nan', 'None'): obs_raw = ''
+    obs = (f'[Feuille topo 1/100: {f100_val}]' + (' — ' + obs_raw if obs_raw else '')) if f100_val else obs_raw
+
+    db.add(Fiche(
+        fiche_numero   = num,
+        date_pv        = dpv,
+        caidat         = caidat_choisi,
+        n_autorisation = str(row.get('N_auto') or '').strip(),
+        x_coord        = gf('X', 'x_coord'),
+        y_coord        = gf('Y', 'y_coord'),
+        lambert_zone   = gi('lambert_zo', 'lambert_zone', 1),
+        metrage        = gi('metrage', d=100),
+        long_2         = gi('long_2', d=50),
+        accord         = acc,
+        observation    = obs,
+        responsable    = responsable_import,
+        status         = 'traité' if acc == 'oui' else 'non traité',
+    ))
+    return ('ok', num)
+
+
+@app.route('/import', methods=['GET', 'POST'])
 @login_required
 def import_excel():
     """
-    Import en 2 étapes :
-      step=1 → l'utilisateur choisit le fichier Excel → aperçu + choix du caïdat
-      step=2 → confirmation : import réel avec le caïdat sélectionné
+    Import en 2 étapes.
+    Le fichier Excel est stocké temporairement sur disque (évite le 413).
+    step=1 → upload fichier → aperçu + token fichier temp
+    step=2 → choix caïdat + token → import réel depuis fichier temp
     """
 
-    # ── ÉTAPE 2 : Import réel ─────────────────────────────────────────────────
+    # ── ÉTAPE 2 : Import réel depuis fichier temporaire ───────────────────────
     if request.method == 'POST' and request.form.get('step') == '2':
-        import base64, json
-
         caidat_choisi = request.form.get('caidat_import', '').strip()
-        if not caidat_choisi or caidat_choisi not in ALL_CAIDATS:
-            flash('Veuillez sélectionner un caïdat valide.', 'error')
+        token         = request.form.get('file_token', '').strip()
+        filename      = request.form.get('filename', 'import.xlsx')
+
+        if caidat_choisi and caidat_choisi not in ALL_CAIDATS:
+            flash('Caïdat inconnu. Sélectionnez un caïdat valide ou laissez "À compléter".', 'error')
             return redirect(url_for('import_excel'))
 
-        # Récupérer le DataFrame sérialisé depuis le formulaire caché
+        # Récupérer le fichier temporaire via le token
+        tmp_path = os.path.join(UPLOAD_TMP, f'{token}.pkl')
+        if not os.path.exists(tmp_path):
+            flash('Session expirée ou fichier introuvable. Veuillez réimporter le fichier.', 'error')
+            return redirect(url_for('import_excel'))
+
         try:
-            df_json  = request.form.get('df_data', '')
-            df       = pd.read_json(io.StringIO(df_json), orient='records')
-            filename = request.form.get('filename', 'import.xlsx')
+            df = pd.read_pickle(tmp_path)
         except Exception as e:
-            flash(f'Erreur de récupération des données : {e}', 'error')
+            flash(f'Erreur de lecture du fichier temporaire : {e}', 'error')
             return redirect(url_for('import_excel'))
+        finally:
+            # Supprimer le fichier temp dans tous les cas
+            try: os.remove(tmp_path)
+            except: pass
 
-        # Responsable déduit du caïdat
-        responsable_import = CAIDAT_RESPONSABLE.get(caidat_choisi, '')
-        info_caidat        = CAIDATS_LOOKUP.get(caidat_choisi, {})
+        responsable_import = CAIDAT_RESPONSABLE.get(caidat_choisi, '') if caidat_choisi else ''
 
         db          = SessionLocal()
         counter_val = get_counter_value(db)
         imported = skipped = already_exists = 0
 
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             try:
-                raw = row.get('fiche_N_') or row.get('fiche_N')
-                if pd.isna(raw) if not isinstance(raw, str) else not str(raw).strip():
-                    skipped += 1; continue
-                num = int(float(raw))
-
-                if db.query(Fiche).filter_by(fiche_numero=num).first():
-                    already_exists += 1; skipped += 1; continue
-
-                dpv = row.get('date_pv', '')
-                if pd.notna(dpv) and isinstance(dpv, (int, float)):
-                    dpv = (pd.Timestamp('1899-12-30') + pd.Timedelta(days=int(dpv))).strftime('%d/%m/%Y')
+                result = _process_df_row(row, caidat_choisi, responsable_import, db, counter_val)
+                if isinstance(result, tuple) and result[0] == 'ok':
+                    num = result[1]
+                    if num > counter_val: counter_val = num
+                    imported += 1
+                elif result == 'exists':
+                    already_exists += 1; skipped += 1
                 else:
-                    dpv = str(dpv).strip() if pd.notna(dpv) else ''
-
-                acc      = 'oui' if str(row.get('accord', 'non')).strip().lower() == 'oui' else 'non'
-                f100_val = str(row.get('f100') or '').strip()
-
-                def gf(k1, k2=None):
-                    v = row.get(k1) or (row.get(k2) if k2 else None)
-                    try: return float(v) if v is not None and pd.notna(v) else None
-                    except: return None
-
-                def gi(k1, k2=None, d=0):
-                    v = row.get(k1) or (row.get(k2) if k2 else None)
-                    try: return int(float(v)) if v is not None and pd.notna(v) else d
-                    except: return d
-
-                obs_raw = str(row.get('observation') or row.get('observatio') or '').strip()
-                if obs_raw in ('<Null>', 'nan', 'None'): obs_raw = ''
-                obs_combined = (f'[Feuille topo 1/100: {f100_val}]' + (' — ' + obs_raw if obs_raw else '')) if f100_val else obs_raw
-
-                db.add(Fiche(
-                    fiche_numero   = num,
-                    date_pv        = dpv,
-                    caidat         = caidat_choisi,
-                    n_autorisation = str(row.get('N_auto') or '').strip(),
-                    x_coord        = gf('X', 'x_coord'),
-                    y_coord        = gf('Y', 'y_coord'),
-                    lambert_zone   = gi('lambert_zo', 'lambert_zone', 1),
-                    metrage        = gi('metrage', d=100),
-                    long_2         = gi('long_2', d=50),
-                    accord         = acc,
-                    observation    = obs_combined,
-                    responsable    = responsable_import,
-                    status         = 'traité' if acc == 'oui' else 'non traité',
-                ))
-                if num > counter_val:
-                    counter_val = num
-                imported += 1
-
+                    skipped += 1
             except Exception:
                 skipped += 1
 
@@ -628,6 +660,7 @@ def import_excel():
             c.value = counter_val
 
         from datetime import datetime as dt_now
+        label = caidat_choisi if caidat_choisi else 'sans caïdat'
         db.add(ImportLog(
             filename    = f'{filename} [{dt_now.now().strftime("%d/%m/%Y %H:%M")}]',
             nb_imported = imported,
@@ -637,20 +670,22 @@ def import_excel():
         db.commit()
         db.close()
 
-        msg = f'Import "{caidat_choisi}" : {imported} fiche(s) importée(s)'
+        msg = f'Import ({label}) : {imported} fiche(s) importée(s)'
         if already_exists:
             msg += f', {already_exists} déjà existante(s) ignorée(s)'
         flash(msg + '.', 'success')
         return redirect(url_for('fiches'))
 
-    # ── ÉTAPE 1 : Lecture du fichier → aperçu ────────────────────────────────
+    # ── ÉTAPE 1 : Upload + analyse du fichier ─────────────────────────────────
     if request.method == 'POST' and request.form.get('step') == '1':
         f = request.files.get('excel_file')
         if not f or not f.filename.endswith(('.xlsx', '.xls')):
-            flash('Fichier Excel requis.', 'error')
+            flash('Fichier Excel requis (.xlsx ou .xls).', 'error')
             return redirect(url_for('import_excel'))
+
+        raw_bytes = f.read()
         try:
-            xl = pd.read_excel(io.BytesIO(f.read()), sheet_name=None)
+            xl = pd.read_excel(io.BytesIO(raw_bytes), sheet_name=None)
         except Exception as e:
             flash(f'Erreur lecture : {e}', 'error')
             return redirect(url_for('import_excel'))
@@ -665,7 +700,6 @@ def import_excel():
             flash('Colonnes attendues introuvables (fiche_N_, N_auto).', 'error')
             return redirect(url_for('import_excel'))
 
-        # Compter les nouvelles fiches (pas encore en base)
         db = SessionLocal()
         nums_existants = {r[0] for r in db.query(Fiche.fiche_numero).all()}
         db.close()
@@ -684,8 +718,10 @@ def import_excel():
             flash('Toutes les fiches de ce fichier existent déjà en base.', 'warning')
             return redirect(url_for('import_excel'))
 
-        # Sérialiser le DataFrame pour le passer à l'étape 2
-        df_json = df.to_json(orient='records', force_ascii=False)
+        # Stocker le DataFrame sur disque avec un token unique (évite le 413)
+        token    = str(uuid.uuid4())
+        tmp_path = os.path.join(UPLOAD_TMP, f'{token}.pkl')
+        df.to_pickle(tmp_path)
 
         # Aperçu : 5 premières nouvelles fiches
         apercu = []
@@ -707,31 +743,36 @@ def import_excel():
             except:
                 pass
 
-        db2   = SessionLocal()
-        rows2 = db2.query(ImportLog).order_by(ImportLog.imported_at.desc()).limit(10).all()
-        logs  = _build_logs(rows2)
+        db2  = SessionLocal()
+        logs = _build_logs(db2.query(ImportLog).order_by(ImportLog.imported_at.desc()).limit(10).all())
         db2.close()
 
         return render_template('import.html',
             step=2,
             filename=f.filename,
+            file_token=token,
             nb_nouvelles=len(nouvelles),
             nb_existantes=len(df) - len(nouvelles),
             apercu=apercu,
-            df_json=df_json,
             caidats_hajar=CAIDATS_HAJAR,
             caidats_youssouf=CAIDATS_YOUSSOUF,
             caidats_lookup=CAIDATS_LOOKUP,
             logs=logs,
             username=session['user'])
 
-    # ── GET : Affichage du formulaire initial ─────────────────────────────────
+    # ── GET ────────────────────────────────────────────────────────────────────
     db   = SessionLocal()
     rows = db.query(ImportLog).order_by(ImportLog.imported_at.desc()).limit(10).all()
     logs = _build_logs(rows)
+
+    nb_sans_caidat = db.query(Fiche).filter(
+        (Fiche.caidat == '') | (Fiche.caidat == None)
+    ).count()
     db.close()
+
     return render_template('import.html',
-        step=1, logs=logs, username=session['user'])
+        step=1, logs=logs, nb_sans_caidat=nb_sans_caidat,
+        username=session['user'])
 
     def fmt_date(val):
         """SQLite retourne parfois un str, parfois un datetime — on gère les deux."""

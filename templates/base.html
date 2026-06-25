@@ -44,6 +44,11 @@
   </nav>
 
   <div class="sidebar-footer">
+    <a href="{{ url_for('import_excel') }}#danger"
+       class="nav-link nav-danger"
+       title="Accès à la zone de suppression totale">
+      <span class="nav-icon">🗑</span> Supprimer tout
+    </a>
     <a href="{{ url_for('logout') }}" class="nav-link nav-logout">
       <span class="nav-icon">⎋</span> Déconnexion
     </a>
