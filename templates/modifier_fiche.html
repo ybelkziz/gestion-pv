@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Modifier fiche N° {{ fiche.fiche_numero }} — CADETAF SIG{% endblock %}
+{% block topbar_title %}Modifier fiche{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Fiche N° <code>{{ fiche.fiche_numero }}</code></h1>
+  <a href="{{ url_for('fiches') }}" class="btn btn-outline">← Retour</a>
+</div>
+
+<div class="form-card-wrap">
+<form method="POST" action="{{ url_for('modifier_fiche', fiche_id=fiche.id) }}" class="form-card">
+
+  <div class="form-section">
+    <div class="form-section-title">Identification</div>
+    <div class="form-row">
+      <div class="field">
+        <label>N° de fiche</label>
+        <input type="text" value="{{ fiche.fiche_numero }}" disabled class="input-disabled">
+        <p class="field-hint">Le numéro de fiche ne peut pas être modifié.</p>
+      </div>
+      <div class="field">
+        <label for="n_autorisation">N° autorisation</label>
+        <input type="text" id="n_autorisation" name="n_autorisation" value="{{ fiche.n_autorisation or '' }}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field required">
+        <label for="date_pv">Date du PV terrain</label>
+        <input type="text" id="date_pv" name="date_pv" value="{{ fiche.date_pv }}" required>
+      </div>
+      <div class="field required">
+        <label for="caidat">Caïdat</label>
+        <select id="caidat" name="caidat" required>
+          {% for c in caidats %}
+          <option value="{{ c }}" {% if fiche.caidat==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">Coordonnées Lambert</div>
+    <div class="form-row form-row-3">
+      <div class="field">
+        <label for="x_coord">X</label>
+        <input type="number" id="x_coord" name="x_coord" value="{{ fiche.x_coord|int if fiche.x_coord else '' }}" step="1">
+      </div>
+      <div class="field">
+        <label for="y_coord">Y</label>
+        <input type="number" id="y_coord" name="y_coord" value="{{ fiche.y_coord|int if fiche.y_coord else '' }}" step="1">
+      </div>
+      <div class="field">
+        <label for="lambert_zone">Système</label>
+        <select id="lambert_zone" name="lambert_zone">
+          <option value="1" {% if fiche.lambert_zone==1 %}selected{% endif %}>Lambert Nord Maroc</option>
+          <option value="2" {% if fiche.lambert_zone==2 %}selected{% endif %}>Lambert Sud Maroc</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">Dimensions</div>
+    <div class="form-row">
+      <div class="field">
+        <label for="metrage">Longueur (m)</label>
+        <input type="number" id="metrage" name="metrage" value="{{ fiche.metrage }}">
+      </div>
+      <div class="field">
+        <label for="long_2">Largeur (m)</label>
+        <input type="number" id="long_2" name="long_2" value="{{ fiche.long_2 }}">
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">Résultat SIG</div>
+    <div class="form-row">
+      <div class="field">
+        <label>Avis SIG</label>
+        <div class="radio-group">
+          <label class="radio-card radio-ok">
+            <input type="radio" name="accord" value="oui" {% if fiche.accord=='oui' %}checked{% endif %}> ✓ Favorable
+          </label>
+          <label class="radio-card radio-nok">
+            <input type="radio" name="accord" value="non" {% if fiche.accord=='non' %}checked{% endif %}> ✕ Défavorable
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="status">Statut</label>
+        <select id="status" name="status">
+          <option value="non traité" {% if fiche.status=='non traité' %}selected{% endif %}>Non traité</option>
+          <option value="en cours" {% if fiche.status=='en cours' %}selected{% endif %}>En cours</option>
+          <option value="traité" {% if fiche.status=='traité' %}selected{% endif %}>Traité</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="observation">Remarques SIG</label>
+      <textarea id="observation" name="observation" rows="3">{{ fiche.observation or '' }}</textarea>
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <a href="{{ url_for('fiches') }}" class="btn btn-outline">Annuler</a>
+    <button type="submit" class="btn btn-primary">Enregistrer les modifications</button>
+  </div>
+</form>
+</div>
+{% endblock %}

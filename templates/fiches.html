@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}Fiches — CADETAF SIG{% endblock %}
+{% block topbar_title %}Fiches de vérification{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Fiches <span class="count-badge">{{ total }}</span></h1>
+  <a href="{{ url_for('nouvelle_fiche') }}" class="btn btn-primary">+ Nouvelle fiche</a>
+</div>
+
+<!-- FILTRES -->
+<div class="card filter-card">
+  <form method="GET" action="{{ url_for('fiches') }}" class="filter-form" id="filterForm">
+    <div class="filter-search">
+      <input type="text" name="search" placeholder="N° fiche, N° auto, caïdat, observation…"
+             value="{{ filters.search }}" onkeydown="if(event.key==='Enter')this.form.submit()">
+    </div>
+    <div class="filter-selects">
+      <select name="status" onchange="submitFilter()">
+        <option value="">Tous statuts</option>
+        <option value="traité"     {% if filters.status=='traité' %}selected{% endif %}>Traitées</option>
+        <option value="en cours"   {% if filters.status=='en cours' %}selected{% endif %}>En cours</option>
+        <option value="non traité" {% if filters.status=='non traité' %}selected{% endif %}>Non traitées</option>
+      </select>
+      <select name="accord" onchange="submitFilter()">
+        <option value="">Tous avis</option>
+        <option value="oui" {% if filters.accord=='oui' %}selected{% endif %}>Favorable</option>
+        <option value="non" {% if filters.accord=='non' %}selected{% endif %}>Défavorable</option>
+      </select>
+      <select name="province" onchange="submitFilter()">
+        <option value="">Toutes provinces</option>
+        {% for p in all_provinces %}
+        <option value="{{ p }}" {% if filters.province==p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      <select name="caidat" onchange="submitFilter()">
+        <option value="">Tous caïdats</option>
+        <optgroup label="Hajar (1–35)">
+          {% for c in caidats_hajar %}<option value="{{ c }}" {% if filters.caidat==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </optgroup>
+        <optgroup label="Youssouf (36–71)">
+          {% for c in caidats_youssouf %}<option value="{{ c }}" {% if filters.caidat==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </optgroup>
+      </select>
+      <select name="responsable" onchange="submitFilter()">
+        <option value="">Tous agents</option>
+        <option value="youssouf" {% if filters.responsable=='youssouf' %}selected{% endif %}>Youssouf</option>
+        <option value="hajar"    {% if filters.responsable=='hajar' %}selected{% endif %}>Hajar</option>
+      </select>
+    </div>
+    <div class="filter-actions">
+      <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+      <a href="{{ url_for('fiches') }}" class="btn btn-outline btn-sm">Réinitialiser</a>
+      <a href="{{ url_for('fiches', mes_fiches='1') }}"
+         class="btn btn-ghost btn-sm {% if filters.mes_fiches=='1' %}active{% endif %}">Mes fiches</a>
+    </div>
+    <!-- Conserver la page courante dans les filtres -->
+    <input type="hidden" name="page" value="1">
+  </form>
+</div>
+
+<!-- INFO PAGINATION -->
+<div class="pagination-info">
+  {% if total > 0 %}
+    Affichage de <strong>{{ (page-1)*page_size + 1 }}–{{ [(page)*page_size, total]|min }}</strong>
+    sur <strong>{{ total }}</strong> fiche(s)
+    {% if total_pages > 1 %}— page {{ page }}/{{ total_pages }}{% endif %}
+  {% else %}
+    Aucune fiche trouvée.
+  {% endif %}
+</div>
+
+<!-- TABLEAU -->
+<div class="card table-card">
+  <div class="table-scroll">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>N° Fiche</th>
+        <th>N° Auto.</th>
+        <th>Caïdat</th>
+        <th>Province</th>
+        <th>Date PV</th>
+        <th>Coordonnées</th>
+        <th>Long.</th>
+        <th>Avis</th>
+        <th>Statut</th>
+        <th>Agent</th>
+        <th>Observation</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for f in fiches %}
+    <tr id="row-{{ f.id }}">
+      <td><code class="fiche-num">{{ f.fiche_numero }}</code></td>
+      <td class="mono">{{ f.n_autorisation or '—' }}</td>
+
+      <!-- CAÏDAT -->
+      <td id="caidat-cell-{{ f.id }}">
+        {% if f.caidat %}
+          <span class="caidat-text">{{ f.caidat }}{% if f.caidat_id %}<span class="caidat-id-badge">#{{ f.caidat_id }}</span>{% endif %}</span>
+          <button class="btn-icon btn-reset-caidat" title="Remettre à compléter"
+                  onclick="resetCaidat({{ f.id }})" style="font-size:.7rem;opacity:.5">↺</button>
+        {% else %}
+          <select class="caidat-inline-select" data-id="{{ f.id }}" onchange="updateCaidat(this)">
+            <option value="">— À compléter —</option>
+            <optgroup label="Hajar (1–35)">
+              {% for c in caidats_hajar %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </optgroup>
+            <optgroup label="Youssouf (36–71)">
+              {% for c in caidats_youssouf %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </optgroup>
+          </select>
+        {% endif %}
+      </td>
+
+      <td class="small text-muted" id="province-cell-{{ f.id }}">{{ f.caidat_province or '—' }}</td>
+      <td class="mono">{{ f.date_pv }}</td>
+      <td class="mono small">
+        {% if f.x_coord and f.y_coord %}
+          X={{ f.x_coord|int }}<br>Y={{ f.y_coord|int }}
+          <span class="lambert-badge">L{{ f.lambert_zone }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td>{{ f.metrage }}m</td>
+      <td>
+        <span class="badge badge-{{ 'ok' if f.accord=='oui' else 'nok' }}">
+          {{ '✓ Fav.' if f.accord=='oui' else '✕ Déf.' }}
+        </span>
+      </td>
+      <td>
+        <select class="status-select" data-id="{{ f.id }}" onchange="updateStatus(this)">
+          <option value="non traité" {% if f.status=='non traité' %}selected{% endif %}>Non traité</option>
+          <option value="en cours"   {% if f.status=='en cours' %}selected{% endif %}>En cours</option>
+          <option value="traité"     {% if f.status=='traité' %}selected{% endif %}>Traité</option>
+        </select>
+      </td>
+      <td id="agent-cell-{{ f.id }}">
+        <span class="agent-pill agent-{{ f.responsable }}">
+          {{ f.responsable|capitalize if f.responsable else '—' }}
+        </span>
+      </td>
+      <td class="obs-cell">
+        {% if f.observation and f.observation not in ('<Null>','') %}
+          <span class="obs-short" title="{{ f.observation }}">
+            {{ f.observation[:50] }}{% if f.observation|length > 50 %}…{% endif %}
+          </span>
+        {% else %}—{% endif %}
+      </td>
+      <td class="actions-cell">
+        <a href="{{ url_for('modifier_fiche', fiche_id=f.id) }}" class="btn-icon" title="Modifier">✎</a>
+        <form method="POST" action="{{ url_for('supprimer_fiche', fiche_id=f.id) }}" style="display:inline"
+              onsubmit="return confirm('Supprimer la fiche N° {{ f.fiche_numero }} ?')">
+          <button type="submit" class="btn-icon btn-icon-danger" title="Supprimer">✕</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="12" class="empty">Aucune fiche trouvée.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<!-- PAGINATION -->
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% set base_url = url_for('fiches', status=filters.status, caidat=filters.caidat,
+     accord=filters.accord, responsable=filters.responsable, search=filters.search,
+     mes_fiches=filters.mes_fiches, province=filters.province) %}
+
+  {% if page > 1 %}
+    <a href="{{ base_url }}&page=1" class="pg-btn">«</a>
+    <a href="{{ base_url }}&page={{ page-1 }}" class="pg-btn">‹</a>
+  {% endif %}
+
+  {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+    <a href="{{ base_url }}&page={{ p }}"
+       class="pg-btn {% if p==page %}pg-active{% endif %}">{{ p }}</a>
+  {% endfor %}
+
+  {% if page < total_pages %}
+    <a href="{{ base_url }}&page={{ page+1 }}" class="pg-btn">›</a>
+    <a href="{{ base_url }}&page={{ total_pages }}" class="pg-btn">»</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Appliquer couleur statut au chargement
+document.querySelectorAll('.status-select').forEach(sel => {
+  sel.className = 'status-select status-' + sel.value.replace(/ /g,'-');
+});
+
+function submitFilter() {
+  document.getElementById('filterForm').submit();
+}
+
+function updateStatus(sel) {
+  const id = sel.dataset.id, val = sel.value;
+  fetch(`/api/fiche/${id}/status`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({status: val})
+  }).then(r=>r.json()).then(d=>{
+    if(d.ok) { sel.className='status-select status-'+val.replace(/ /g,'-'); showToast('Statut mis à jour','success'); }
+    else showToast('Erreur','error');
+  });
+}
+
+function updateCaidat(sel) {
+  const id = sel.dataset.id, val = sel.value;
+  if(!val) return;
+  fetch(`/api/fiche/${id}/caidat`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({caidat: val})
+  }).then(r=>r.json()).then(d=>{
+    if(d.ok){
+      document.getElementById('caidat-cell-'+id).innerHTML =
+        `<span class="caidat-text">${val}${d.caidat_id?` <span class="caidat-id-badge">#${d.caidat_id}</span>`:''}</span>
+         <button class="btn-icon btn-reset-caidat" title="Remettre à compléter"
+                 onclick="resetCaidat(${id})" style="font-size:.7rem;opacity:.5">↺</button>`;
+      document.getElementById('province-cell-'+id).textContent = d.province || '—';
+      const r = d.responsable || '';
+      document.getElementById('agent-cell-'+id).innerHTML =
+        `<span class="agent-pill agent-${r}">${r ? r.charAt(0).toUpperCase()+r.slice(1) : '—'}</span>`;
+      showToast(`Caïdat "${val}" attribué à ${r || '—'}`,'success');
+    } else showToast(d.error||'Erreur','error');
+  });
+}
+
+function resetCaidat(id) {
+  if(!confirm('Remettre ce caïdat en "À compléter" ?')) return;
+  fetch(`/api/fiche/${id}/caidat`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({caidat: '__reset__'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.ok){
+      // Reconstruire le select inline
+      const opts = buildCaidatOptions();
+      document.getElementById('caidat-cell-'+id).innerHTML =
+        `<select class="caidat-inline-select" data-id="${id}" onchange="updateCaidat(this)">
+           <option value="">— À compléter —</option>${opts}
+         </select>`;
+      document.getElementById('province-cell-'+id).textContent = '—';
+      document.getElementById('agent-cell-'+id).innerHTML =
+        '<span class="agent-pill">—</span>';
+      showToast('Caïdat remis à compléter','info');
+    } else showToast('Erreur','error');
+  });
+}
+
+function buildCaidatOptions() {
+  const hajar    = {{ caidats_hajar|tojson }};
+  const youssouf = {{ caidats_youssouf|tojson }};
+  let html = '<optgroup label="Hajar (1–35)">';
+  hajar.forEach(c    => html += `<option value="${c}">${c}</option>`);
+  html += '</optgroup><optgroup label="Youssouf (36–71)">';
+  youssouf.forEach(c => html += `<option value="${c}">${c}</option>`);
+  html += '</optgroup>';
+  return html;
+}
+</script>
+{% endblock %}

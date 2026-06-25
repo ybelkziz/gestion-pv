@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% block title %}Import Excel — CADETAF SIG{% endblock %}
+{% block topbar_title %}Import Excel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Import fichier Excel</h1>
+</div>
+
+<div class="import-wrap">
+
+  {% if step == 1 %}
+
+  <!-- Bloc réinitialisation — visible uniquement s'il y a des fiches sans caïdat -->
+  {% if nb_sans_caidat and nb_sans_caidat > 0 %}
+  <div class="reset-warning-block">
+    <div class="reset-warning-text">
+      ⚠ <strong>{{ nb_sans_caidat }} fiche(s)</strong> importée(s) n'ont pas encore de caïdat
+      et sont incorrectement affectées à un agent. Cliquez pour corriger.
+    </div>
+    <button class="btn btn-sm btn-outline" onclick="resetSansCaidat(this)"
+            style="border-color:rgba(244,63,94,.4);color:#fb7185">
+      Vider agent des fiches sans caïdat
+    </button>
+  </div>
+  {% endif %}
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ÉTAPE 1 — Sélection du fichier
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="card import-card">
+    <div class="card-header">
+      <span>📂 Étape 1 — Choisir le fichier</span>
+    </div>
+    <div class="card-body">
+      <p class="text-muted">
+        Sélectionnez un fichier <code>final.xlsx</code> exporté depuis ArcGIS.<br>
+        Colonnes attendues : <code>fiche_N_</code>, <code>N_auto</code>, <code>X</code>, <code>Y</code>,
+        <code>accord</code>, <code>f100</code>, <code>date_pv</code>, <code>metrage</code>, <code>long_2</code>.
+      </p>
+      <form method="POST" action="{{ url_for('import_excel') }}" enctype="multipart/form-data">
+        <input type="hidden" name="step" value="1">
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('excel_file').click()">
+          <div class="drop-icon">📊</div>
+          <div class="drop-text">Glisser-déposer ou cliquer pour sélectionner</div>
+          <div class="drop-hint">.xlsx ou .xls acceptés</div>
+          <div class="drop-filename" id="dropFilename"></div>
+        </div>
+        <input type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls"
+               style="display:none" onchange="showFile(this)">
+        <button type="submit" class="btn btn-primary btn-full mt-2"
+                id="importBtn" disabled>Analyser le fichier →</button>
+      </form>
+    </div>
+  </div>
+
+  {% elif step == 2 %}
+  <!-- ═══════════════════════════════════════════════════════════
+       ÉTAPE 2 — Choix du caïdat + confirmation
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="card import-card">
+    <div class="card-header">
+      <span>📋 Étape 2 — Choisir le caïdat et confirmer</span>
+    </div>
+    <div class="card-body">
+
+      <!-- Résumé du fichier -->
+      <div class="import-summary">
+        <div class="summary-item">
+          <div class="summary-icon">📄</div>
+          <div>
+            <div class="summary-label">Fichier</div>
+            <div class="summary-val">{{ filename }}</div>
+          </div>
+        </div>
+        <div class="summary-item summary-green">
+          <div class="summary-icon">✚</div>
+          <div>
+            <div class="summary-label">Nouvelles fiches</div>
+            <div class="summary-val">{{ nb_nouvelles }}</div>
+          </div>
+        </div>
+        <div class="summary-item summary-muted">
+          <div class="summary-icon">↷</div>
+          <div>
+            <div class="summary-label">Déjà en base (ignorées)</div>
+            <div class="summary-val">{{ nb_existantes }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aperçu des fiches -->
+      {% if apercu %}
+      <div class="apercu-block">
+        <div class="apercu-title">Aperçu des premières fiches</div>
+        <table class="table">
+          <thead>
+            <tr><th>N° Fiche</th><th>N° Auto.</th><th>Date PV</th><th>Accord</th><th>Feuille topo</th></tr>
+          </thead>
+          <tbody>
+            {% for f in apercu %}
+            <tr>
+              <td><code class="fiche-num">{{ f.num }}</code></td>
+              <td class="mono">{{ f.n_auto or '—' }}</td>
+              <td class="mono">{{ f.date or '—' }}</td>
+              <td>
+                <span class="badge badge-{{ 'ok' if f.accord=='oui' else 'nok' }}">
+                  {{ '✓ Favorable' if f.accord=='oui' else '✕ Défavorable' }}
+                </span>
+              </td>
+              <td class="small text-muted">{{ f.f100 or '—' }}</td>
+            </tr>
+            {% endfor %}
+            {% if nb_nouvelles > 5 %}
+            <tr>
+              <td colspan="5" class="empty" style="padding:8px">
+                … et {{ nb_nouvelles - 5 }} fiche(s) supplémentaire(s)
+              </td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      <!-- Formulaire de confirmation -->
+      <form method="POST" action="{{ url_for('import_excel') }}" id="confirmForm">
+        <input type="hidden" name="step" value="2">
+        <input type="hidden" name="filename" value="{{ filename }}">
+        <input type="hidden" name="df_data" value="{{ df_json }}">
+
+        <div class="caidat-picker">
+          <div class="caidat-picker-title">
+            Affecter toutes ces fiches au caïdat :
+          </div>
+
+          <div class="field" style="max-width:380px">
+            <label for="caidat_import">Caïdat <span class="required-star">*</span></label>
+            <select id="caidat_import" name="caidat_import" required onchange="updateCaidatPreview(this)">
+              <option value="">— Sélectionner un caïdat —</option>
+              <optgroup label="Hajar (N° 1–35)">
+                {% for c in caidats_hajar %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+              </optgroup>
+              <optgroup label="Youssouf (N° 36–71)">
+                {% for c in caidats_youssouf %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+              </optgroup>
+            </select>
+
+            <!-- Info live du caïdat sélectionné -->
+            <div id="caidatPreview" class="caidat-preview" style="display:none">
+              <span id="prevProvince" class="info-pill"></span>
+              <span id="prevRegion"   class="info-pill"></span>
+              <span id="prevResp"     class="info-pill resp-pill"></span>
+            </div>
+          </div>
+
+          <div class="import-warning">
+            ⚠ Ce caïdat sera appliqué à <strong>toutes les {{ nb_nouvelles }} fiche(s)</strong> de ce fichier.
+            Assurez-vous que toutes les fiches appartiennent bien au même caïdat.
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <a href="{{ url_for('import_excel') }}" class="btn btn-outline">← Recommencer</a>
+          <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+            ✓ Importer {{ nb_nouvelles }} fiche(s) dans "{{ filename }}"
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Zone de danger -->
+  <div class="card danger-zone-card">
+    <div class="card-header" style="color:#fb7185;border-color:rgba(244,63,94,.2)">
+      ⚠ Zone de danger
+    </div>
+    <div class="card-body">
+      <p class="text-muted" style="margin-bottom:12px">
+        Supprime <strong>toutes les fiches</strong> et remet le compteur à zéro.
+        Utile pour réimporter proprement après correction.
+        Cette action est <strong>irréversible</strong>.
+      </p>
+      <button class="btn btn-sm" onclick="supprimerTout()"
+              style="border:1px solid rgba(244,63,94,.4);color:#fb7185;background:rgba(244,63,94,.06)">
+        🗑 Supprimer toutes les fiches
+      </button>
+    </div>
+  </div>
+
+  <!-- Historique -->
+  <div class="card">
+    <div class="card-header">Historique des imports</div>
+    {% if logs %}
+    <table class="table">
+      <thead>
+        <tr><th>Fichier</th><th>Importées</th><th>Ignorées</th><th>Par</th><th>Date</th></tr>
+      </thead>
+      <tbody>
+      {% for log in logs %}
+      <tr>
+        <td class="small">{{ log.filename }}</td>
+        <td><span class="badge badge-ok">+{{ log.nb_imported }}</span></td>
+        <td><span class="badge badge-neutral">{{ log.nb_skipped }}</span></td>
+        <td><span class="agent-pill agent-{{ log.imported_by }}">{{ log.imported_by|capitalize }}</span></td>
+        <td class="mono small">{{ log.imported_at }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Aucun import effectué.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Supprimer tout ───────────────────────────────────────
+function supprimerTout() {
+  const msg = 'Cette action supprimera TOUTES les fiches définitivement.\n\n' +
+              'Tapez exactement : SUPPRIMER TOUT';
+  const rep = prompt(msg);
+  if (rep !== 'SUPPRIMER TOUT') {
+    if (rep !== null) showToast('Confirmation incorrecte — rien supprimé.', 'error');
+    return;
+  }
+  fetch('/api/supprimer_tout', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({confirmation: 'SUPPRIMER TOUT'})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      showToast(d.deleted + ' fiche(s) supprimée(s). Base remise à zéro.', 'success');
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      showToast(d.error || 'Erreur', 'error');
+    }
+  });
+}
+
+// ── Reset fiches sans caïdat ─────────────────────────────
+function resetSansCaidat(btn) {
+  if (!confirm('Vider le champ agent pour toutes les fiches sans caïdat ?')) return;
+  btn.disabled = true;
+  btn.textContent = 'En cours…';
+  fetch('/api/reset_sans_caidat', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      showToast(d.reset + ' fiche(s) corrigée(s) — agent remis à vide.', 'success');
+      btn.closest('.reset-warning-block').remove();
+    } else {
+      showToast('Erreur', 'error');
+      btn.disabled = false;
+    }
+  });
+}
+
+// ── Étape 1 : drag & drop ────────────────────────────────
+function showFile(input) {
+  const f = input.files[0];
+  if (f) {
+    document.getElementById('dropFilename').textContent = f.name;
+    document.getElementById('importBtn').disabled = false;
+    document.getElementById('dropZone').classList.add('has-file');
+  }
+}
+const dz = document.getElementById('dropZone');
+if (dz) {
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) {
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      document.getElementById('excel_file').files = dt.files;
+      showFile(document.getElementById('excel_file'));
+    }
+  });
+}
+
+// ── Étape 2 : info caïdat ────────────────────────────────
+const CAIDATS_INFO = {
+  {% if caidats_lookup %}
+  {% for nom, info in caidats_lookup.items() %}
+  "{{ nom }}": {
+    province: "{{ info.province }}",
+    region:   "{{ info.region }}",
+    resp:     "{{ 'Hajar' if nom in caidats_hajar else 'Youssouf' }}"
+  },
+  {% endfor %}
+  {% endif %}
+};
+
+function updateCaidatPreview(sel) {
+  const nom = sel.value;
+  const box = document.getElementById('caidatPreview');
+  const btn = document.getElementById('submitBtn');
+  if (!nom || !CAIDATS_INFO[nom]) {
+    box.style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+  const d = CAIDATS_INFO[nom];
+  document.getElementById('prevProvince').textContent = '📍 ' + d.province;
+  document.getElementById('prevRegion').textContent   = '🗺 ' + d.region;
+  document.getElementById('prevResp').textContent     = '👤 ' + d.resp;
+  document.getElementById('prevResp').className = 'info-pill resp-pill agent-' + d.resp.toLowerCase();
+  box.style.display = 'flex';
+  btn.disabled = false;
+}
+</script>
+{% endblock %}

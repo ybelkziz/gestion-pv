@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Nouvelle fiche — CADETAF SIG{% endblock %}
+{% block topbar_title %}Nouvelle fiche{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Nouvelle fiche de vérification</h1>
+  <a href="{{ url_for('fiches') }}" class="btn btn-outline">← Retour</a>
+</div>
+
+<div class="form-card-wrap">
+<form method="POST" action="{{ url_for('nouvelle_fiche') }}" class="form-card" id="ficheForm">
+
+  <!-- SECTION 1 : Identification -->
+  <div class="form-section">
+    <div class="form-section-title">Identification</div>
+    <div class="form-row">
+      <div class="field required">
+        <label for="fiche_numero">N° de fiche</label>
+        <div class="input-with-badge">
+          <input type="number" id="fiche_numero" name="fiche_numero"
+                 value="{{ prochain }}" min="1" required style="flex:0 0 160px">
+          <span class="input-badge">Prochain disponible : <strong>{{ prochain }}</strong></span>
+        </div>
+        <p class="field-hint">⚠ Ce numéro ne peut pas être décrémenté ni sauter un numéro libre.</p>
+      </div>
+      <div class="field">
+        <label for="n_autorisation">N° autorisation</label>
+        <input type="text" id="n_autorisation" name="n_autorisation" placeholder="ex: 2025/18">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field required">
+        <label for="date_pv">Date du PV terrain</label>
+        <input type="text" id="date_pv" name="date_pv" placeholder="ex: 01/04/2026">
+      </div>
+      <div class="field required">
+        <label for="caidat">Caïdat</label>
+        <select id="caidat" name="caidat" required onchange="updateCaidatInfo(this)">
+          <option value="">— Sélectionner —</option>
+          <optgroup label="Mes caïdats ({{ username|capitalize }})">
+            {% for c in caidats %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </optgroup>
+          <optgroup label="Autres caïdats">
+            {% for c in all_caidats %}{% if c not in caidats %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endif %}{% endfor %}
+          </optgroup>
+        </select>
+        <!-- Info dynamique du caïdat sélectionné -->
+        <div id="caidatInfo" class="caidat-info" style="display:none">
+          <span id="caidatProvince" class="info-pill"></span>
+          <span id="caidatRegion" class="info-pill"></span>
+          <span id="caidatResp" class="info-pill"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2 : Coordonnées -->
+  <div class="form-section">
+    <div class="form-section-title">Coordonnées Lambert</div>
+    <div class="form-row form-row-3">
+      <div class="field">
+        <label for="x_coord">X (Lambert)</label>
+        <input type="number" id="x_coord" name="x_coord" placeholder="ex: 589825" step="1">
+      </div>
+      <div class="field">
+        <label for="y_coord">Y (Lambert)</label>
+        <input type="number" id="y_coord" name="y_coord" placeholder="ex: 160941" step="1">
+      </div>
+      <div class="field">
+        <label for="lambert_zone">Système</label>
+        <select id="lambert_zone" name="lambert_zone">
+          <option value="1">Lambert Nord Maroc</option>
+          <option value="2">Lambert Sud Maroc</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3 : Dimensions -->
+  <div class="form-section">
+    <div class="form-section-title">Dimensions de l'autorisation</div>
+    <div class="form-row">
+      <div class="field">
+        <label for="metrage">Longueur (m)</label>
+        <input type="number" id="metrage" name="metrage" value="100" min="1">
+      </div>
+      <div class="field">
+        <label for="long_2">Largeur (m)</label>
+        <input type="number" id="long_2" name="long_2" value="50" min="1">
+        <p class="field-hint">Largeur du filon en général</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 4 : Vérification SIG -->
+  <div class="form-section">
+    <div class="form-section-title">Résultat de la vérification SIG</div>
+    <div class="form-row">
+      <div class="field required">
+        <label>Avis SIG</label>
+        <div class="radio-group">
+          <label class="radio-card radio-ok">
+            <input type="radio" name="accord" value="oui"> ✓ Favorable
+          </label>
+          <label class="radio-card radio-nok">
+            <input type="radio" name="accord" value="non" checked> ✕ Défavorable
+          </label>
+        </div>
+      </div>
+      <div class="field required">
+        <label for="status">Statut de traitement</label>
+        <select id="status" name="status">
+          <option value="non traité">Non traité</option>
+          <option value="en cours">En cours</option>
+          <option value="traité">Traité</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="observation">Remarques SIG</label>
+      <textarea id="observation" name="observation" rows="3"
+        placeholder="ex: Rentre dans le domaine de l'AMA N°2025/17, chevauchement avec…"></textarea>
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <a href="{{ url_for('fiches') }}" class="btn btn-outline">Annuler</a>
+    <button type="submit" class="btn btn-primary">Créer la fiche N° {{ prochain }}</button>
+  </div>
+</form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Données des caïdats (injectées depuis Python)
+const CAIDATS_DATA = {
+  {% for nom, info in caidats_lookup.items() %}
+  "{{ nom }}": {"province": "{{ info.province }}", "region": "{{ info.region }}", "id": {{ info.id }},
+    "responsable": "{{ 'hajar' if nom in caidats_hajar else 'youssouf' }}"},
+  {% endfor %}
+};
+
+function updateCaidatInfo(sel) {
+  const nom = sel.value;
+  const box = document.getElementById('caidatInfo');
+  if (!nom || !CAIDATS_DATA[nom]) { box.style.display='none'; return; }
+  const d = CAIDATS_DATA[nom];
+  document.getElementById('caidatProvince').textContent = '📍 ' + d.province;
+  document.getElementById('caidatRegion').textContent   = '🗺 ' + d.region;
+  document.getElementById('caidatResp').textContent     = '👤 ' + d.responsable.charAt(0).toUpperCase() + d.responsable.slice(1);
+  box.style.display = 'flex';
+}
+</script>
+{% endblock %}
