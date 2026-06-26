@@ -22,10 +22,14 @@
 
 <div class="page-header">
   <h1>Vue d'ensemble</h1>
-  <div class="counter-display">
-    <span class="counter-label">Dernière fiche éditée</span>
-    <span class="counter-value" id="counterVal">N° {{ counter }}</span>
-    <button class="btn btn-sm btn-outline" onclick="showCounterModal()">Mettre à jour</button>
+  <div class="counter-zone">
+    <div class="counter-display">
+      <span class="counter-label">Dernière fiche éditée</span>
+      <span class="counter-value" id="counterVal">N° {{ counter }}</span>
+      <button class="btn btn-sm btn-outline" onclick="showCounterModal()">Mettre à jour</button>
+    </div>
+    <div id="plagesActives" class="plages-actives"></div>
+    <button class="btn btn-sm btn-amber" onclick="showReservModal()">📋 Réserver une plage</button>
   </div>
 </div>
 
@@ -139,6 +143,38 @@
     </div>
     {% endfor %}
     <a href="{{ url_for('fiches', mes_fiches='1') }}" class="btn btn-sm btn-outline mt-2">Mes fiches</a>
+  </div>
+</div>
+
+<!-- RÉSERVATION MODAL -->
+<div class="modal-overlay" id="reservModal" onclick="if(event.target===this)hideReservModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>📋 Réserver une plage de numéros</h3>
+      <button onclick="hideReservModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="text-muted">
+        Déclarez les numéros que vous allez utiliser.<br>
+        L'autre agent ne pourra pas créer de fiche dans cette plage.
+      </p>
+      <div class="form-row">
+        <div class="field">
+          <label>N° de début</label>
+          <input type="number" id="reservDebut" min="1">
+        </div>
+        <div class="field">
+          <label>N° de fin</label>
+          <input type="number" id="reservFin" min="1">
+        </div>
+      </div>
+      <p class="field-hint" id="reservInfo"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="hideReservModal()">Annuler</button>
+      <button class="btn btn-outline" onclick="libererPlage()" style="color:#fb7185;border-color:rgba(244,63,94,.3)">Libérer ma plage</button>
+      <button class="btn btn-primary" onclick="submitReserv()">Réserver</button>
+    </div>
   </div>
 </div>
 
@@ -278,6 +314,74 @@ loadStats();
 
 // Rafraîchir automatiquement toutes les 30 secondes
 setInterval(loadStats, 30000);
+
+// ── Plages réservées ────────────────────────────────────
+function loadPlages() {
+  fetch('/api/plages_actives').then(r=>r.json()).then(plages=>{
+    const box = document.getElementById('plagesActives');
+    if (!plages.length) { box.innerHTML = ''; return; }
+    box.innerHTML = plages.map(p => {
+      const moi = p.agent === '{{ username }}';
+      return `<div class="plage-badge ${moi ? 'plage-moi' : 'plage-autre'}">
+        ${moi ? '👤 Moi' : '👤 ' + p.agent.charAt(0).toUpperCase()+p.agent.slice(1)}
+        : N°${p.debut} → ${p.fin}
+        <span class="plage-nb">${p.fin - p.debut + 1} fiches</span>
+      </div>`;
+    }).join('');
+  });
+}
+loadPlages();
+setInterval(loadPlages, 15000);  // rafraîchir toutes les 15s
+
+function showReservModal() {
+  const next = parseInt(document.getElementById('counterVal').textContent.replace('N° ','')) + 1;
+  document.getElementById('reservDebut').value = next;
+  document.getElementById('reservFin').value   = next + 9;
+  document.getElementById('reservModal').classList.add('show');
+  updateReservInfo();
+}
+function hideReservModal() { document.getElementById('reservModal').classList.remove('show'); }
+
+function updateReservInfo() {
+  const d = parseInt(document.getElementById('reservDebut').value);
+  const f = parseInt(document.getElementById('reservFin').value);
+  if (d && f && f >= d) {
+    document.getElementById('reservInfo').textContent =
+      `→ ${f - d + 1} fiche(s) réservée(s) : N°${d} à N°${f}`;
+  }
+}
+document.getElementById('reservDebut')?.addEventListener('input', updateReservInfo);
+document.getElementById('reservFin')?.addEventListener('input', updateReservInfo);
+
+function submitReserv() {
+  const debut = parseInt(document.getElementById('reservDebut').value);
+  const fin   = parseInt(document.getElementById('reservFin').value);
+  fetch('/api/reserver_plage', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({debut, fin})
+  }).then(r=>r.json()).then(d=>{
+    if (d.ok) {
+      hideReservModal();
+      showToast(`Plage N°${d.debut}→${d.fin} réservée`, 'success');
+      loadPlages();
+      loadStats();
+    } else {
+      showToast(d.error, 'error');
+    }
+  });
+}
+
+function libererPlage() {
+  fetch('/api/liberer_plage', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(r=>r.json()).then(d=>{
+      if (d.ok) {
+        hideReservModal();
+        showToast('Plage libérée', 'success');
+        loadPlages();
+      }
+    });
+}
 
 // ── Compteur modal ──────────────────────────────────────
 function showCounterModal(){ document.getElementById('counterModal').classList.add('show'); }

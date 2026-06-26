@@ -53,6 +53,19 @@ class FicheCounter(Base):
     id    = Column(Integer, primary_key=True, default=1)
     value = Column(Integer, default=0)
 
+class PlageReservee(Base):
+    """
+    Réservation de plage de numéros par un agent.
+    Ex: Hajar réserve 3486-3507 → Youssouf ne peut pas créer dans cette plage.
+    """
+    __tablename__ = 'plages_reservees'
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    agent       = Column(String(50), nullable=False)
+    debut       = Column(Integer, nullable=False)
+    fin         = Column(Integer, nullable=False)
+    active      = Column(Integer, default=1)   # 1=active, 0=terminée
+    cree_le     = Column(DateTime, default=datetime.utcnow)
+
 class ImportLog(Base):
     __tablename__ = 'import_logs'
     id          = Column(Integer, primary_key=True, autoincrement=True)
@@ -391,6 +404,23 @@ def nouvelle_fiche():
             db.close()
             return redirect(url_for('nouvelle_fiche'))
 
+        # Vérifier qu'on n'empiète pas sur la plage réservée par l'autre agent
+        conflit = db.query(PlageReservee).filter(
+            PlageReservee.active == 1,
+            PlageReservee.agent != session['user'],
+            PlageReservee.debut <= fiche_num,
+            PlageReservee.fin   >= fiche_num
+        ).first()
+        if conflit:
+            flash(
+                f'⚠ Le numéro {fiche_num} est dans la plage réservée par '
+                f'{conflit.agent.capitalize()} (N°{conflit.debut}→{conflit.fin}). '
+                "Attendez qu'il/elle libère sa plage ou choisissez un autre numéro.",
+                'error'
+            )
+            db.close()
+            return redirect(url_for('nouvelle_fiche'))
+
         def sf(v):
             try: return float(v) if v else None
             except: return None
@@ -715,15 +745,17 @@ def import_excel():
         db = SessionLocal()
 
         # ── UNE SEULE requête pour charger tous les numéros existants ──────────
-        # Au lieu de faire 1 SELECT par ligne (2500 requêtes), on fait 1 seul SELECT
-        # et on garde le résultat en mémoire (set Python = recherche O(1))
-        nums_existants = {r[0] for r in db.query(Fiche.fiche_numero).all()}
+        # Charger aussi le responsable pour détecter les conflits inter-agents
+        fiches_existantes = {r[0]: r[1] for r in
+                             db.query(Fiche.fiche_numero, Fiche.responsable).all()}
+        nums_existants = set(fiches_existantes.keys())
         counter_val    = get_counter_value(db)
         imported = skipped = already_exists = 0
+        conflits_inter_agents = []   # fiches qui existent mais appartiennent à l'autre agent
         import re as _re
         from datetime import datetime as dt_now
 
-        BATCH_SIZE = 100  # commit toutes les 100 insertions pour éviter le timeout
+        BATCH_SIZE = 100
 
         for _, row in df.iterrows():
             try:
@@ -740,6 +772,13 @@ def import_excel():
 
                 # Vérification en mémoire — pas de requête SQL
                 if num in nums_existants:
+                    resp_existant = fiches_existantes[num]
+                    # Conflit inter-agents : la fiche existe mais appartient à l'autre
+                    if resp_existant and resp_existant != session['user']:
+                        conflits_inter_agents.append({
+                            'num': num,
+                            'auteur': resp_existant
+                        })
                     already_exists += 1; skipped += 1; continue
 
                 # ── Date PV ──────────────────────────────────────────────────
@@ -829,6 +868,23 @@ def import_excel():
         if already_exists:
             msg += f', {already_exists} déjà existante(s) ignorée(s)'
         flash(msg + '.', 'success')
+
+        # Avertir si des fiches de l'autre agent ont été ignorées
+        if conflits_inter_agents:
+            autres = {}
+            for c in conflits_inter_agents:
+                autres.setdefault(c['auteur'], []).append(c['num'])
+            for auteur, nums in autres.items():
+                nums_str = ', '.join(str(n) for n in sorted(nums)[:10])
+                if len(nums) > 10:
+                    nums_str += f' ... et {len(nums)-10} autres'
+                flash(
+                    f'⚠ {len(nums)} fiche(s) de votre fichier Excel existent déjà '
+                    f'et ont été créées par {auteur.capitalize()} : N° {nums_str}. '
+                    f'Ces fiches ont été ignorées — vérifiez avec {auteur.capitalize()}.',
+                    'warning'
+                )
+
         return redirect(url_for('fiches'))
 
     # ── ÉTAPE 1 : Upload + analyse du fichier ─────────────────────────────────
@@ -1033,6 +1089,84 @@ def api_counter():
     db.commit()
     db.close()
     return jsonify({'ok':True,'value':new_val})
+
+# ── RÉSERVATION DE PLAGE ─────────────────────────────────────────────────────
+
+@app.route('/api/reserver_plage', methods=['POST'])
+@login_required
+def api_reserver_plage():
+    data  = request.get_json()
+    debut = data.get('debut')
+    fin   = data.get('fin')
+    try:
+        debut = int(debut)
+        fin   = int(fin)
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Numéros invalides'}), 400
+    if debut > fin:
+        return jsonify({'ok': False, 'error': 'Le début doit être ≤ à la fin'}), 400
+    if fin - debut > 200:
+        return jsonify({'ok': False, 'error': 'Plage trop grande (max 200 fiches)'}), 400
+
+    db = SessionLocal()
+    # Vérifier qu'il n'y a pas de conflit avec une réservation active de l'autre agent
+    conflits = db.query(PlageReservee).filter(
+        PlageReservee.active == 1,
+        PlageReservee.agent != session['user'],
+        PlageReservee.fin >= debut,
+        PlageReservee.debut <= fin
+    ).all()
+    if conflits:
+        c = conflits[0]
+        db.close()
+        return jsonify({'ok': False,
+            'error': f'{c.agent.capitalize()} a déjà réservé N°{c.debut}→{c.fin}'}), 409
+
+    # Annuler les anciennes réservations actives de cet agent
+    db.query(PlageReservee).filter(
+        PlageReservee.agent == session['user'],
+        PlageReservee.active == 1
+    ).update({'active': 0})
+
+    # Créer la nouvelle réservation
+    db.add(PlageReservee(agent=session['user'], debut=debut, fin=fin, active=1))
+
+    # Avancer le compteur si nécessaire
+    c = db.query(FicheCounter).first()
+    if c and fin > c.value:
+        c.value = fin
+
+    db.commit()
+    db.close()
+    return jsonify({'ok': True, 'debut': debut, 'fin': fin,
+                    'agent': session['user']})
+
+
+@app.route('/api/liberer_plage', methods=['POST'])
+@login_required
+def api_liberer_plage():
+    """Marque la réservation active de l'agent comme terminée."""
+    db = SessionLocal()
+    db.query(PlageReservee).filter(
+        PlageReservee.agent == session['user'],
+        PlageReservee.active == 1
+    ).update({'active': 0})
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/plages_actives')
+@login_required
+def api_plages_actives():
+    """Retourne les réservations actives de tous les agents."""
+    db = SessionLocal()
+    plages = db.query(PlageReservee).filter(PlageReservee.active == 1).all()
+    result = [{'agent': p.agent, 'debut': p.debut, 'fin': p.fin,
+               'cree_le': p.cree_le.strftime('%d/%m/%Y %H:%M') if p.cree_le else ''}
+              for p in plages]
+    db.close()
+    return jsonify(result)
 
 # ── SUPPRESSION TOTALE DE TOUTES LES FICHES ─────────────────────────────────
 
