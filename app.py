@@ -5,8 +5,6 @@ from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-
-
 from functools import wraps
 import os, io, pandas as pd
 
@@ -28,7 +26,7 @@ class Fiche(Base):
     __tablename__ = 'fiches'
     id             = Column(Integer, primary_key=True, autoincrement=True)
     fiche_numero   = Column(Integer, unique=True, nullable=False)
-    date_pv        = Column(String(20), nullable=False)
+    date_pv        = Column(String(100), nullable=False)
     caidat         = Column(String(100), nullable=False)
     n_autorisation = Column(String(50))
     x_coord        = Column(Float)
@@ -558,14 +556,32 @@ def _process_df_row(row, caidat_choisi, responsable_import, db, counter_val):
     if db.query(Fiche).filter_by(fiche_numero=num).first():
         return 'exists'
 
+    # ── Date PV : extraire uniquement la partie date (max 100 chars) ──────────
     dpv = row.get('date_pv', '')
     if pd.notna(dpv) and isinstance(dpv, (int, float)):
         dpv = (pd.Timestamp('1899-12-30') + pd.Timedelta(days=int(dpv))).strftime('%d/%m/%Y')
     else:
         dpv = str(dpv).strip() if pd.notna(dpv) else ''
+    # Nettoyer : garder seulement les 10 premiers caractères si c'est une date dd/mm/yyyy
+    # sinon tronquer à 100 caractères pour éviter StringDataRightTruncation
+    if dpv and len(dpv) > 10:
+        # Essayer d'extraire juste la date (dd/mm/yyyy) en début de chaîne
+        import re
+        date_match = re.match(r'(\d{2}/\d{2}/\d{4})', dpv)
+        if date_match:
+            dpv = date_match.group(1)
+        else:
+            dpv = dpv[:100]  # tronquer à 100 chars max
 
-    acc      = 'oui' if str(row.get('accord', 'non')).strip().lower() == 'oui' else 'non'
-    f100_val = str(row.get('f100') or '').strip()
+    acc = 'oui' if str(row.get('accord', 'non')).strip().lower() == 'oui' else 'non'
+
+    # ── f100 : ignorer si 'nan' ou vide ──────────────────────────────────────
+    f100_raw = row.get('f100')
+    f100_val = ''
+    if f100_raw is not None and pd.notna(f100_raw):
+        f100_str = str(f100_raw).strip()
+        if f100_str.lower() not in ('nan', 'none', '', '<null>'):
+            f100_val = f100_str
 
     def gf(k1, k2=None):
         v = row.get(k1) or (row.get(k2) if k2 else None)
@@ -578,7 +594,7 @@ def _process_df_row(row, caidat_choisi, responsable_import, db, counter_val):
         except: return d
 
     obs_raw = str(row.get('observation') or row.get('observatio') or '').strip()
-    if obs_raw in ('<Null>', 'nan', 'None'): obs_raw = ''
+    if obs_raw.lower() in ('<null>', 'nan', 'none', ''): obs_raw = ''
     obs = (f'[Feuille topo 1/100: {f100_val}]' + (' — ' + obs_raw if obs_raw else '')) if f100_val else obs_raw
 
     db.add(Fiche(
@@ -653,6 +669,10 @@ def import_excel():
                 else:
                     skipped += 1
             except Exception:
+                # IMPORTANT PostgreSQL : rollback obligatoire après toute erreur
+                # sinon la session reste en état PendingRollbackError
+                try: db.rollback()
+                except: pass
                 skipped += 1
 
         c = db.query(FicheCounter).first()
