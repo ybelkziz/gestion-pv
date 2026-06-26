@@ -783,7 +783,6 @@ def import_excel():
                 db.add(FicheCounter(value=counter_val))
             elif counter_val > c.value:
                 c.value = counter_val
-            label = caidat_choisi if caidat_choisi else 'sans caïdat'
             db.add(ImportLog(
                 filename    = f'{filename} [{dt_now.now().strftime("%d/%m/%Y %H:%M")}]',
                 nb_imported = imported,
@@ -796,6 +795,7 @@ def import_excel():
             flash(f'Erreur lors de la finalisation : {e}', 'error')
         db.close()
 
+        label = caidat_choisi if caidat_choisi else 'sans caïdat'
         msg = f'Import ({label}) : {imported} fiche(s) importée(s)'
         if already_exists:
             msg += f', {already_exists} déjà existante(s) ignorée(s)'
