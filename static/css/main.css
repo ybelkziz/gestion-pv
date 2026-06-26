@@ -736,3 +736,8 @@ select option { background: var(--bg-card); }
 /* ── SIDEBAR DANGER LINK ─────────────────────────────────── */
 .nav-danger { color: rgba(244,63,94,.6) !important; }
 .nav-danger:hover { background: rgba(244,63,94,.08) !important; color: #fb7185 !important; }
+
+/* ── ACCORD : EN COURS ───────────────────────────────────── */
+.badge-enc      { background: rgba(245,158,11,.15); color: #fbbf24; border:1px solid rgba(245,158,11,.3); }
+.radio-enc:has(input:checked) { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.4); color: #fbbf24; }
+.kpi-enc-accord .kpi-icon { background: rgba(245,158,11,.12); color: var(--amber); }

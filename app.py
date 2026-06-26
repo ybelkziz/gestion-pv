@@ -42,7 +42,7 @@ class Fiche(Base):
     lambert_zone   = Column(Integer, default=1)
     metrage        = Column(Integer, default=100)
     long_2         = Column(Integer, default=50)
-    accord         = Column(String(10), default='non')
+    accord         = Column(String(15), default='non')
     observation    = Column(Text)
     responsable    = Column(String(50))
     date_creation  = Column(DateTime, default=datetime.utcnow)
@@ -212,7 +212,7 @@ def fiche_to_dict(f):
         'lambert_zone':   f.lambert_zone,
         'metrage':        f.metrage,
         'long_2':         f.long_2,
-        'accord':         f.accord or 'non',
+        'accord':         f.accord or 'non',  # oui / non / en cours
         'observation':    f.observation or '',
         'responsable':    f.responsable or '',
         'status':         f.status or 'non traité',
@@ -254,6 +254,7 @@ def dashboard():
         'non_traite':   db.query(Fiche).filter(Fiche.status=='non traité').count(),
         'favorables':   db.query(Fiche).filter(Fiche.accord=='oui').count(),
         'defavorables': db.query(Fiche).filter(Fiche.accord=='non').count(),
+        'en_cours_accord': db.query(Fiche).filter(Fiche.accord=='en cours').count(),
     }
     recent_raw   = db.query(Fiche).order_by(Fiche.fiche_numero.desc()).limit(5).all()
     recent       = [fiche_to_dict(f) for f in recent_raw]
@@ -527,6 +528,27 @@ def api_caidat(fiche_id):
                     'responsable': responsable})
 
 # ── IMPORT EXCEL ──────────────────────────────────────────────────────────────
+
+
+def _normaliser_accord(val):
+    """Normalise la valeur accord vers 'oui', 'non' ou 'en cours'."""
+    if not val or str(val).lower() in ('nan', 'none', ''):
+        return 'non'
+    v = str(val).strip().lower()
+    # Favorable
+    if v.startswith('oui'):
+        # 'oui/ en cours', 'oui (en attente)' → en cours
+        if any(x in v for x in ['attente', 'cours', 'attendre']):
+            return 'en cours'
+        return 'oui'
+    # Défavorable
+    if v.startswith('non'):
+        return 'non'
+    # En cours / en attente
+    if any(x in v for x in ['attente', 'cours', 'attendre', 'encours']):
+        return 'en cours'
+    # Valeurs numériques ou inconnues → non
+    return 'non'
 
 
 def _build_logs(rows):
@@ -941,8 +963,9 @@ def api_stats():
     traites     = sum(1 for f in rows if f.status == 'traité')
     en_cours    = sum(1 for f in rows if f.status == 'en cours')
     non_traite  = sum(1 for f in rows if f.status == 'non traité')
-    favorables  = sum(1 for f in rows if f.accord == 'oui')
-    defavorables= sum(1 for f in rows if f.accord == 'non')
+    favorables      = sum(1 for f in rows if f.accord == 'oui')
+    defavorables    = sum(1 for f in rows if f.accord == 'non')
+    en_cours_accord = sum(1 for f in rows if f.accord == 'en cours')
     counter_val = get_counter_value(db)
     db.close()
     return jsonify({
@@ -950,12 +973,13 @@ def api_stats():
         'by_month':    dict(sorted(by_month.items())),
         'by_resp':     by_resp,
         'kpi': {
-            'total':        total,
-            'traites':      traites,
-            'en_cours':     en_cours,
-            'non_traite':   non_traite,
-            'favorables':   favorables,
-            'defavorables': defavorables,
+            'total':           total,
+            'traites':         traites,
+            'en_cours':        en_cours,
+            'non_traite':      non_traite,
+            'favorables':      favorables,
+            'defavorables':    defavorables,
+            'en_cours_accord': en_cours_accord,
         },
         'counter': counter_val,
     })

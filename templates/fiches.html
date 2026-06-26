@@ -24,8 +24,9 @@
       </select>
       <select name="accord" onchange="submitFilter()">
         <option value="">Tous avis</option>
-        <option value="oui" {% if filters.accord=='oui' %}selected{% endif %}>Favorable</option>
-        <option value="non" {% if filters.accord=='non' %}selected{% endif %}>Défavorable</option>
+        <option value="oui"      {% if filters.accord=='oui' %}selected{% endif %}>✓ Favorable</option>
+        <option value="non"      {% if filters.accord=='non' %}selected{% endif %}>✕ Défavorable</option>
+        <option value="en cours" {% if filters.accord=='en cours' %}selected{% endif %}>⟳ En cours</option>
       </select>
       <select name="province" onchange="submitFilter()">
         <option value="">Toutes provinces</option>
@@ -125,9 +126,13 @@
       </td>
       <td>{{ f.metrage }}m</td>
       <td>
-        <span class="badge badge-{{ 'ok' if f.accord=='oui' else 'nok' }}">
-          {{ '✓ Fav.' if f.accord=='oui' else '✕ Déf.' }}
-        </span>
+        {% if f.accord == 'oui' %}
+          <span class="badge badge-ok">✓ Fav.</span>
+        {% elif f.accord == 'en cours' %}
+          <span class="badge badge-enc">⟳ En cours</span>
+        {% else %}
+          <span class="badge badge-nok">✕ Déf.</span>
+        {% endif %}
       </td>
       <td>
         <select class="status-select" data-id="{{ f.id }}" onchange="updateStatus(this)">
