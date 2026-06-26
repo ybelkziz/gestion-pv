@@ -661,43 +661,117 @@ def import_excel():
 
         responsable_import = CAIDAT_RESPONSABLE.get(caidat_choisi, '') if caidat_choisi else ''
 
-        db          = SessionLocal()
-        counter_val = get_counter_value(db)
+        db = SessionLocal()
+
+        # ── UNE SEULE requête pour charger tous les numéros existants ──────────
+        # Au lieu de faire 1 SELECT par ligne (2500 requêtes), on fait 1 seul SELECT
+        # et on garde le résultat en mémoire (set Python = recherche O(1))
+        nums_existants = {r[0] for r in db.query(Fiche.fiche_numero).all()}
+        counter_val    = get_counter_value(db)
         imported = skipped = already_exists = 0
+        import re as _re
+        from datetime import datetime as dt_now
+
+        BATCH_SIZE = 100  # commit toutes les 100 insertions pour éviter le timeout
 
         for _, row in df.iterrows():
             try:
-                result = _process_df_row(row, caidat_choisi, responsable_import, db, counter_val)
-                if isinstance(result, tuple) and result[0] == 'ok':
-                    num = result[1]
-                    if num > counter_val: counter_val = num
-                    imported += 1
-                elif result == 'exists':
-                    already_exists += 1; skipped += 1
+                # ── Numéro de fiche ──────────────────────────────────────────
+                raw = row.get('fiche_N_') or row.get('fiche_N')
+                try:
+                    is_na = pd.isna(raw)
+                except Exception:
+                    is_na = not str(raw).strip()
+                if is_na:
+                    skipped += 1; continue
+
+                num = int(float(raw))
+
+                # Vérification en mémoire — pas de requête SQL
+                if num in nums_existants:
+                    already_exists += 1; skipped += 1; continue
+
+                # ── Date PV ──────────────────────────────────────────────────
+                dpv = row.get('date_pv', '')
+                if pd.notna(dpv) and isinstance(dpv, (int, float)):
+                    dpv = (pd.Timestamp('1899-12-30') + pd.Timedelta(days=int(dpv))).strftime('%d/%m/%Y')
                 else:
-                    skipped += 1
+                    dpv = str(dpv).strip() if pd.notna(dpv) else ''
+                if dpv and len(dpv) > 10:
+                    m = _re.match(r'(\d{2}/\d{2}/\d{4})', dpv)
+                    dpv = m.group(1) if m else dpv[:100]
+
+                # ── Accord ───────────────────────────────────────────────────
+                acc = 'oui' if str(row.get('accord', 'non')).strip().lower() == 'oui' else 'non'
+
+                # ── f100 ─────────────────────────────────────────────────────
+                f100_raw = row.get('f100')
+                f100_val = ''
+                if f100_raw is not None and pd.notna(f100_raw):
+                    f100_str = str(f100_raw).strip()
+                    if f100_str.lower() not in ('nan', 'none', '', '<null>'):
+                        f100_val = f100_str
+
+                def gf(k1, k2=None):
+                    v = row.get(k1) or (row.get(k2) if k2 else None)
+                    try: return float(v) if v is not None and pd.notna(v) else None
+                    except: return None
+
+                def gi(k1, k2=None, d=0):
+                    v = row.get(k1) or (row.get(k2) if k2 else None)
+                    try: return int(float(v)) if v is not None and pd.notna(v) else d
+                    except: return d
+
+                obs_raw = str(row.get('observation') or row.get('observatio') or '').strip()
+                if obs_raw.lower() in ('<null>', 'nan', 'none', ''): obs_raw = ''
+                obs = (f'[Feuille topo 1/100: {f100_val}]' + (' — ' + obs_raw if obs_raw else '')) if f100_val else obs_raw
+
+                db.add(Fiche(
+                    fiche_numero   = num,
+                    date_pv        = dpv,
+                    caidat         = caidat_choisi,
+                    n_autorisation = str(row.get('N_auto') or '').strip(),
+                    x_coord        = gf('X', 'x_coord'),
+                    y_coord        = gf('Y', 'y_coord'),
+                    lambert_zone   = gi('lambert_zo', 'lambert_zone', 1),
+                    metrage        = gi('metrage', d=100),
+                    long_2         = gi('long_2', d=50),
+                    accord         = acc,
+                    observation    = obs,
+                    responsable    = responsable_import,
+                    status         = 'traité' if acc == 'oui' else 'non traité',
+                ))
+                nums_existants.add(num)  # éviter les doublons dans le même fichier
+                if num > counter_val: counter_val = num
+                imported += 1
+
+                # Commit par lots pour libérer la mémoire et éviter le timeout
+                if imported % BATCH_SIZE == 0:
+                    db.commit()
+
             except Exception:
-                # IMPORTANT PostgreSQL : rollback obligatoire après toute erreur
-                # sinon la session reste en état PendingRollbackError
                 try: db.rollback()
                 except: pass
                 skipped += 1
 
-        c = db.query(FicheCounter).first()
-        if not c:
-            db.add(FicheCounter(value=counter_val))
-        elif counter_val > c.value:
-            c.value = counter_val
-
-        from datetime import datetime as dt_now
-        label = caidat_choisi if caidat_choisi else 'sans caïdat'
-        db.add(ImportLog(
-            filename    = f'{filename} [{dt_now.now().strftime("%d/%m/%Y %H:%M")}]',
-            nb_imported = imported,
-            nb_skipped  = skipped,
-            imported_by = session['user'],
-        ))
-        db.commit()
+        # Commit final
+        try:
+            c = db.query(FicheCounter).first()
+            if not c:
+                db.add(FicheCounter(value=counter_val))
+            elif counter_val > c.value:
+                c.value = counter_val
+            label = caidat_choisi if caidat_choisi else 'sans caïdat'
+            db.add(ImportLog(
+                filename    = f'{filename} [{dt_now.now().strftime("%d/%m/%Y %H:%M")}]',
+                nb_imported = imported,
+                nb_skipped  = skipped,
+                imported_by = session['user'],
+            ))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            flash(f'Erreur lors de la finalisation : {e}', 'error')
         db.close()
 
         msg = f'Import ({label}) : {imported} fiche(s) importée(s)'
