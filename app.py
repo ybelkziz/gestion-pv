@@ -64,6 +64,35 @@ class ImportLog(Base):
 
 Base.metadata.create_all(bind=engine)
 
+# ── MIGRATION AUTOMATIQUE ─────────────────────────────────────────────────────
+# PostgreSQL garde les anciennes définitions de colonnes — on les corrige ici
+def run_migrations():
+    """Élargit les colonnes trop étroites sans perdre les données existantes."""
+    migrations = [
+        # date_pv : VARCHAR(20) → VARCHAR(200) pour gérer les valeurs longues
+        "ALTER TABLE fiches ALTER COLUMN date_pv TYPE VARCHAR(200)",
+        # observation : déjà TEXT normalement, mais on s'assure
+        "ALTER TABLE fiches ALTER COLUMN observation TYPE TEXT",
+        # accord : VARCHAR(10) → VARCHAR(20) pour 'en cours'
+        "ALTER TABLE fiches ALTER COLUMN accord TYPE VARCHAR(20)",
+        # caidat : rendre nullable pour les imports sans caïdat
+        "ALTER TABLE fiches ALTER COLUMN caidat DROP NOT NULL",
+        # date_pv : rendre nullable aussi
+        "ALTER TABLE fiches ALTER COLUMN date_pv DROP NOT NULL",
+    ]
+    try:
+        with engine.connect() as conn:
+            for sql in migrations:
+                try:
+                    conn.execute(__import__('sqlalchemy').text(sql))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()  # ignorer si déjà fait ou pas nécessaire
+    except Exception:
+        pass  # SQLite n'a pas besoin de ces migrations
+
+run_migrations()
+
 # ── CAIDATS ───────────────────────────────────────────────────────────────────
 # Source : hajar_youssef_caidat.xlsx — données officielles (71 caïdats)
 
@@ -601,7 +630,7 @@ def _process_df_row(row, caidat_choisi, responsable_import, db, counter_val):
         if date_match:
             dpv = date_match.group(1)
         else:
-            dpv = dpv[:100]  # tronquer à 100 chars max
+            dpv = dpv[:200]  # tronquer à 200 chars max
 
     acc = 'oui' if str(row.get('accord', 'non')).strip().lower() == 'oui' else 'non'
 
@@ -721,7 +750,7 @@ def import_excel():
                     dpv = str(dpv).strip() if pd.notna(dpv) else ''
                 if dpv and len(dpv) > 10:
                     m = _re.match(r'(\d{2}/\d{2}/\d{4})', dpv)
-                    dpv = m.group(1) if m else dpv[:100]
+                    dpv = m.group(1) if m else dpv[:200]
 
                 # ── Accord ───────────────────────────────────────────────────
                 acc = 'oui' if str(row.get('accord', 'non')).strip().lower() == 'oui' else 'non'
