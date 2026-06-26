@@ -15,7 +15,15 @@ DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///gestion_pv.db')
 if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-engine = create_engine(DATABASE_URL)
+# pool_pre_ping=True : teste la connexion avant chaque requête
+# indispensable avec Neon qui ferme les connexions idle
+# pool_recycle=300 : recrée les connexions après 5 minutes max
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={"connect_timeout": 10} if DATABASE_URL.startswith('postgresql') else {}
+)
 # expire_on_commit=False évite le DetachedInstanceError après commit/close
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 Base = declarative_base()
