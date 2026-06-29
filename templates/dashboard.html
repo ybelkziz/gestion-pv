@@ -24,9 +24,15 @@
   <h1>Vue d'ensemble</h1>
   <div class="counter-zone">
     <div class="counter-display">
-      <span class="counter-label">Dernière fiche éditée</span>
-      <span class="counter-value" id="counterVal">N° {{ counter }}</span>
-      <button class="btn btn-sm btn-outline" onclick="showCounterModal()">Mettre à jour</button>
+      <div class="counter-info-stack">
+        <div>
+          <span class="counter-label">Dernier N° (fiches réelles)</span>
+          <span class="counter-value" id="counterVal">N° {{ counter }}</span>
+        </div>
+        <div class="counter-next">
+          Prochain disponible : <strong id="counterNext">N° {{ next_num }}</strong>
+        </div>
+      </div>
     </div>
     <div id="plagesActives" class="plages-actives"></div>
     <button class="btn btn-sm btn-amber" onclick="showReservModal()">📋 Réserver une plage</button>
@@ -386,22 +392,7 @@ function libererPlage() {
 // ── Compteur modal ──────────────────────────────────────
 function showCounterModal(){ document.getElementById('counterModal').classList.add('show'); }
 function hideCounterModal(){ document.getElementById('counterModal').classList.remove('show'); }
-function submitCounter(){
-  const v = parseInt(document.getElementById('newCounterVal').value);
-  fetch('/api/counter', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({value: v})
-  }).then(r => r.json()).then(d => {
-    if (d.ok) {
-      document.getElementById('counterVal').textContent = 'N° ' + d.value;
-      hideCounterModal();
-      showToast('Compteur mis à jour : N° ' + d.value, 'success');
-      loadStats(); // rafraîchir tout
-    } else {
-      showToast(d.error, 'error');
-    }
-  });
-}
+// submitCounter remplacé par showReservModal
+// Le compteur se met à jour automatiquement depuis les fiches réelles et les plages
 </script>
 {% endblock %}

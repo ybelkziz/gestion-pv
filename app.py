@@ -288,7 +288,13 @@ def logout():
 @login_required
 def dashboard():
     db = SessionLocal()
-    counter_val = get_counter_value(db)
+    # Dernier numéro = max entre : dernière fiche réelle + plages réservées actives
+    top_fiche   = db.query(Fiche).order_by(Fiche.fiche_numero.desc()).first()
+    max_fiche   = top_fiche.fiche_numero if top_fiche else 0
+    plages      = db.query(PlageReservee).filter(PlageReservee.active==1).all()
+    max_plage   = max((p.fin for p in plages), default=0)
+    dernier_num = max(max_fiche, max_plage)  # vrai dernier numéro, pas le compteur
+
     stats = {
         'total':        db.query(Fiche).count(),
         'traites':      db.query(Fiche).filter(Fiche.status=='traité').count(),
@@ -304,8 +310,8 @@ def dashboard():
     db.close()
 
     return render_template('dashboard.html',
-        counter=counter_val,
-        next_num=counter_val + 1,
+        counter=dernier_num,
+        next_num=dernier_num + 1,
         stats=stats,
         recent=recent,
         stats_resp=stats_resp,
@@ -1044,6 +1050,10 @@ def api_stats():
         if f.responsable in by_resp:
             by_resp[f.responsable] += 1
     # KPI live pour mise à jour du tableau de bord
+    max_f    = max((f.fiche_numero for f in rows), default=0)
+    plgs     = db.query(PlageReservee).filter(PlageReservee.active==1).all()
+    max_p    = max((p.fin for p in plgs), default=0)
+    dernier_num = max(max_f, max_p)
     total       = len(rows)
     traites     = sum(1 for f in rows if f.status == 'traité')
     en_cours    = sum(1 for f in rows if f.status == 'en cours')
@@ -1066,26 +1076,57 @@ def api_stats():
             'defavorables':    defavorables,
             'en_cours_accord': en_cours_accord,
         },
-        'counter': counter_val,
+        'counter':        dernier_num,   # vrai dernier = max(fiches, plages)
+        'max_fiche_reel': max_f,         # dernier numéro vraiment en base
     })
 
 @app.route('/api/counter', methods=['POST'])
 @login_required
 def api_counter():
+    """
+    Le compteur manuel est désactivé — utilisez la réservation de plage.
+    Cette route est conservée pour compatibilité mais redirige vers
+    la réservation automatique.
+    """
     data = request.get_json()
     try:
         new_val = int(data.get('value', 0))
     except:
         return jsonify({'ok':False,'error':'Valeur invalide'}), 400
 
-    db  = SessionLocal()
-    cur = get_counter_value(db)
-    if new_val <= cur:
-        db.close()
-        return jsonify({'ok':False,'error':f'Le compteur ne peut pas descendre (actuel: {cur})'}), 400
+    db = SessionLocal()
+    top   = db.query(Fiche).order_by(Fiche.fiche_numero.desc()).first()
+    max_f = top.fiche_numero if top else 0
+    plages = db.query(PlageReservee).filter(PlageReservee.active==1).all()
+    max_p = max((p.fin for p in plages), default=0)
+    vrai_max = max(max_f, max_p)
 
+    # Refuser si on essaie de sauter trop loin (plus de 200 numéros au-delà de la réalité)
+    if new_val > vrai_max + 200:
+        db.close()
+        return jsonify({
+            'ok': False,
+            'error': (
+                f'Valeur trop élevée. La dernière fiche réelle est N°{max_f}. '
+                f'Utilisez "Réserver une plage" pour déclarer votre travail en cours.'
+            )
+        }), 400
+
+    # Refuser la décrémentation
+    if new_val <= vrai_max:
+        db.close()
+        return jsonify({
+            'ok': False,
+            'error': (
+                f'Impossible : la dernière fiche réelle est déjà N°{max_f}. '
+                f'Le compteur ne peut pas descendre en dessous.'
+            )
+        }), 400
+
+    # Avancer le compteur (cas légitime)
     c = db.query(FicheCounter).first()
-    c.value = new_val
+    if c:
+        c.value = new_val
     db.commit()
     db.close()
     return jsonify({'ok':True,'value':new_val})

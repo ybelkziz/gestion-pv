@@ -756,3 +756,8 @@ select option { background: var(--bg-card); }
 .btn-amber { background: var(--amber-glow); color: var(--amber);
              border: 1px solid var(--amber-dim); }
 .btn-amber:hover { background: rgba(245,158,11,.2); }
+
+/* ── COUNTER ZONE MISE À JOUR ────────────────────────────── */
+.counter-info-stack { display: flex; flex-direction: column; gap: 2px; }
+.counter-next { font-size: .75rem; color: var(--green); }
+.counter-next strong { font-family: var(--mono); }
