@@ -177,8 +177,18 @@ def draw_fiche(c, data, logo_path=LOGO_PATH, footer_path=FOOTER_PATH):
     c.setFont('Helvetica-Bold', 8)
     c.drawString(ML, y, "Réf. PV :")
     c.setFont('Helvetica', 8)
-    dpv = str(data.get('date_pv', '') or '')[:60]
-    c.drawString(ML + 100, y, dpv)
+    dpv    = str(data.get('date_pv', '') or '')[:60]
+    caidat = str(data.get('caidat', '') or '')
+    # Caïdat en rouge/bleu foncé avant la date
+    if caidat:
+        c.setFont('Helvetica-Bold', 8)
+        c.setFillColor(BLUE_DARK)
+        c.drawString(ML + 48, y, caidat)
+        c.setFillColor(BLACK)
+        c.setFont('Helvetica', 8)
+        c.drawString(ML + 48 + c.stringWidth(caidat, 'Helvetica-Bold', 8) + 6, y, dpv)
+    else:
+        c.drawString(ML + 48, y, dpv)
 
     # ══════════════════════════════════════════════════════════════
     # SECTION 2 : INFORMATIONS COORDONNÉES
