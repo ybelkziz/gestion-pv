@@ -230,8 +230,7 @@ def draw_fiche(c, data, logo_path=LOGO_PATH, footer_path=FOOTER_PATH):
     # ── Règle 3 : rayon d'autres AMA ─────────────────────────────
     # OUI si l'un des mots-clés est détecté
     ama_mots = ['ama', 'domaine', 'autoris', 'autre ama',
-                'autres ama', 'rayon', 'chevauchement', 'chevauche',
-                'rentre dans', 'rentrent dans']
+                'autres ama', 'rayon', 'chevauchement', 'chevauche']
     in_ama = any(m in obs_lower for m in ama_mots)
 
     ck = [
