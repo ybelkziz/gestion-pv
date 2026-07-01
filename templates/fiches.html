@@ -5,7 +5,13 @@
 {% block content %}
 <div class="page-header">
   <h1>Fiches <span class="count-badge">{{ total }}</span></h1>
-  <a href="{{ url_for('nouvelle_fiche') }}" class="btn btn-primary">+ Nouvelle fiche</a>
+  <div class="btn-group">
+    <a href="{{ url_for('nouvelle_fiche') }}" class="btn btn-primary">+ Nouvelle fiche</a>
+    <a href="{{ url_for('pdf_batch') }}{{ '&' + request.query_string.decode() if request.query_string else '' }}"
+       target="_blank" class="btn btn-outline" title="Imprimer toutes les fiches affichées (max 100)">
+      🖨 Imprimer la sélection
+    </a>
+  </div>
 </div>
 
 <!-- FILTRES -->
@@ -154,6 +160,8 @@
         {% else %}—{% endif %}
       </td>
       <td class="actions-cell">
+        <a href="{{ url_for('pdf_fiche', fiche_id=f.id) }}" target="_blank"
+           class="btn-icon" title="Imprimer la fiche PDF">🖨</a>
         <a href="{{ url_for('modifier_fiche', fiche_id=f.id) }}" class="btn-icon" title="Modifier">✎</a>
         <form method="POST" action="{{ url_for('supprimer_fiche', fiche_id=f.id) }}" style="display:inline"
               onsubmit="return confirm('Supprimer la fiche N° {{ f.fiche_numero }} ?')">

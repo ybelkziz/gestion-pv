@@ -1256,5 +1256,126 @@ def api_reset_sans_caidat():
     db.close()
     return jsonify({'ok': True, 'reset': count})
 
+# ── GÉNÉRATION PDF ────────────────────────────────────────────────────────────
+
+def fiche_to_pdf_data(fiche_dict):
+    """Prépare les données d'une fiche pour le générateur PDF."""
+    from datetime import datetime as dt
+    return {
+        'fiche_numero':  fiche_dict.get('fiche_numero', ''),
+        'n_autorisation': fiche_dict.get('n_autorisation', ''),
+        'metrage':        fiche_dict.get('metrage', ''),
+        'long_2':         fiche_dict.get('long_2', ''),
+        'x_coord':        fiche_dict.get('x_coord', ''),
+        'y_coord':        fiche_dict.get('y_coord', ''),
+        'f100':           fiche_dict.get('observation', ''),  # feuille topo extraite
+        'caidat':         fiche_dict.get('caidat', ''),
+        'date_pv':        fiche_dict.get('date_pv', ''),
+        'date_edition':   dt.now().strftime('%d/%m/%Y'),
+        'accord':         fiche_dict.get('accord', 'non'),
+        'observation':    fiche_dict.get('observation', ''),
+    }
+
+
+@app.route('/fiches/<int:fiche_id>/pdf')
+@login_required
+def pdf_fiche(fiche_id):
+    """Génère le PDF d'une seule fiche."""
+    from flask import send_file
+    import io
+    try:
+        from gen_fiche import generer_pdf_fiche
+    except ImportError as e:
+        return f'Erreur import générateur PDF : {e}', 500
+
+    db    = SessionLocal()
+    fiche = db.query(Fiche).filter_by(id=fiche_id).first()
+    if not fiche:
+        db.close()
+        return 'Fiche introuvable', 404
+    data = fiche_to_pdf_data(fiche_to_dict(fiche))
+    db.close()
+
+    try:
+        pdf_bytes = generer_pdf_fiche(data)
+    except Exception as e:
+        return f'Erreur génération PDF : {e}', 500
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=False,
+        download_name=f'fiche_{data["fiche_numero"]}.pdf'
+    )
+
+
+@app.route('/fiches/pdf_batch')
+@login_required
+def pdf_batch():
+    """Génère un PDF multi-pages pour une sélection de fiches.
+    Paramètres GET : ids=1,2,3 ou utilise les mêmes filtres que la liste.
+    """
+    from flask import send_file
+    import io
+    try:
+        from gen_fiche import generer_pdf_fiches_multiples
+    except ImportError as e:
+        return f'Erreur import générateur PDF : {e}', 500
+
+    ids_param = request.args.get('ids', '')
+
+    db = SessionLocal()
+    if ids_param:
+        ids = [int(i) for i in ids_param.split(',') if i.strip().isdigit()]
+        fiches_raw = db.query(Fiche).filter(Fiche.id.in_(ids))                       .order_by(Fiche.fiche_numero.asc()).all()
+    else:
+        # Mêmes filtres que la liste
+        q_status   = request.args.get('status', '')
+        q_caidat   = request.args.get('caidat', '')
+        q_accord   = request.args.get('accord', '')
+        q_resp     = request.args.get('responsable', '')
+        q_search   = request.args.get('search', '').strip()
+        q_province = request.args.get('province', '')
+        query = db.query(Fiche)
+        if q_status:   query = query.filter(Fiche.status == q_status)
+        if q_caidat:   query = query.filter(Fiche.caidat == q_caidat)
+        if q_accord:   query = query.filter(Fiche.accord == q_accord)
+        if q_resp:     query = query.filter(Fiche.responsable == q_resp)
+        if q_search:
+            query = query.filter(
+                Fiche.n_autorisation.ilike(f'%{q_search}%') |
+                Fiche.caidat.ilike(f'%{q_search}%') |
+                Fiche.observation.ilike(f'%{q_search}%')
+            )
+        if q_province:
+            caidats_prov = [c['nom'] for c in CAIDATS_HAJAR_DATA + CAIDATS_YOUSSOUF_DATA
+                            if c['province'] == q_province]
+            query = query.filter(Fiche.caidat.in_(caidats_prov))
+        fiches_raw = query.order_by(Fiche.fiche_numero.asc()).limit(100).all()
+
+    if not fiches_raw:
+        db.close()
+        return 'Aucune fiche trouvée', 404
+
+    fiches_data = [fiche_to_pdf_data(fiche_to_dict(f)) for f in fiches_raw]
+    nb = len(fiches_data)
+    db.close()
+
+    try:
+        pdf_bytes = generer_pdf_fiches_multiples(fiches_data)
+    except Exception as e:
+        return f'Erreur génération PDF : {e}', 500
+
+    nums = [str(f['fiche_numero']) for f in fiches_data]
+    nom  = f'fiches_{nums[0]}_a_{nums[-1]}.pdf' if nb > 1 else f'fiche_{nums[0]}.pdf'
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=False,
+        download_name=nom
+    )
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
