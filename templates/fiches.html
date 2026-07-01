@@ -7,10 +7,12 @@
   <h1>Fiches <span class="count-badge">{{ total }}</span></h1>
   <div class="btn-group">
     <a href="{{ url_for('nouvelle_fiche') }}" class="btn btn-primary">+ Nouvelle fiche</a>
-    <a href="{{ url_for('pdf_batch') }}{{ '&' + request.query_string.decode() if request.query_string else '' }}"
-       target="_blank" class="btn btn-outline" title="Imprimer toutes les fiches affichées (max 100)">
-      🖨 Imprimer la sélection
-    </a>
+    <button class="btn btn-outline" onclick="toggleSelectAll()" id="btnSelectAll">
+      ☐ Tout sélectionner
+    </button>
+    <button class="btn btn-amber" onclick="imprimerSelection()" id="btnImprimer" disabled>
+      🖨 Imprimer la sélection (<span id="selCount">0</span>)
+    </button>
   </div>
 </div>
 
@@ -83,6 +85,9 @@
   <table class="table">
     <thead>
       <tr>
+        <th class="th-check">
+          <input type="checkbox" id="checkAll" onclick="toggleSelectAll()" title="Tout sélectionner">
+        </th>
         <th>N° Fiche</th>
         <th>N° Auto.</th>
         <th>Caïdat</th>
@@ -99,7 +104,11 @@
     </thead>
     <tbody>
     {% for f in fiches %}
-    <tr id="row-{{ f.id }}">
+    <tr id="row-{{ f.id }}" class="fiche-row">
+      <td class="td-check">
+        <input type="checkbox" class="fiche-check" value="{{ f.id }}"
+               data-num="{{ f.fiche_numero }}" onchange="updateSelection()">
+      </td>
       <td><code class="fiche-num">{{ f.fiche_numero }}</code></td>
       <td class="mono">{{ f.n_autorisation or '—' }}</td>
 
@@ -265,6 +274,49 @@ function resetCaidat(id) {
       showToast('Caïdat remis à compléter','info');
     } else showToast('Erreur','error');
   });
+}
+
+// ── Sélection et impression ──────────────────────────────
+function updateSelection() {
+  const checked = document.querySelectorAll('.fiche-check:checked');
+  const count   = checked.length;
+  document.getElementById('selCount').textContent = count;
+  document.getElementById('btnImprimer').disabled = count === 0;
+
+  // Surbrillance des lignes sélectionnées
+  document.querySelectorAll('.fiche-row').forEach(row => {
+    row.classList.remove('row-selected');
+  });
+  checked.forEach(cb => {
+    cb.closest('tr').classList.add('row-selected');
+  });
+
+  // Mettre à jour la case "tout sélectionner"
+  const all = document.querySelectorAll('.fiche-check');
+  const ca  = document.getElementById('checkAll');
+  if (ca) {
+    ca.checked       = count === all.length && all.length > 0;
+    ca.indeterminate = count > 0 && count < all.length;
+  }
+  document.getElementById('btnSelectAll').textContent =
+    count === all.length && all.length > 0 ? '☑ Tout désélectionner' : '☐ Tout sélectionner';
+}
+
+function toggleSelectAll() {
+  const all     = document.querySelectorAll('.fiche-check');
+  const checked = document.querySelectorAll('.fiche-check:checked');
+  const doCheck = checked.length < all.length;
+  all.forEach(cb => cb.checked = doCheck);
+  const ca = document.getElementById('checkAll');
+  if (ca) ca.checked = doCheck;
+  updateSelection();
+}
+
+function imprimerSelection() {
+  const checked = document.querySelectorAll('.fiche-check:checked');
+  if (checked.length === 0) return;
+  const ids = Array.from(checked).map(cb => cb.value).join(',');
+  window.open('/fiches/pdf_batch?ids=' + ids, '_blank');
 }
 
 function buildCaidatOptions() {

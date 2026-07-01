@@ -761,3 +761,22 @@ select option { background: var(--bg-card); }
 .counter-info-stack { display: flex; flex-direction: column; gap: 2px; }
 .counter-next { font-size: .75rem; color: var(--green); }
 .counter-next strong { font-family: var(--mono); }
+
+/* ── SÉLECTION FICHES ────────────────────────────────────── */
+.th-check, .td-check {
+  width: 36px; text-align: center; padding: 8px 4px !important;
+}
+.th-check input, .td-check input {
+  width: 15px; height: 15px; cursor: pointer; accent-color: var(--amber);
+}
+.fiche-row { transition: background .1s; }
+.row-selected { background: rgba(245,158,11,.08) !important;
+                border-left: 3px solid var(--amber); }
+.row-selected:hover { background: rgba(245,158,11,.12) !important; }
+#btnImprimer:disabled { opacity: .4; cursor: not-allowed; }
+#btnImprimer:not(:disabled) { animation: pulseBtn .3s ease; }
+@keyframes pulseBtn {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
