@@ -1260,20 +1260,34 @@ def api_reset_sans_caidat():
 
 def fiche_to_pdf_data(fiche_dict):
     """Prépare les données d'une fiche pour le générateur PDF."""
+    import re as _re
     from datetime import datetime as dt
+
+    obs_full = str(fiche_dict.get('observation', '') or '')
+
+    # Extraire le nom de la feuille topo depuis [Feuille topo 1/100: Xxx]
+    f100_val = ''
+    match = _re.search(r'\[Feuille topo 1/100:\s*([^\]]+)\]', obs_full)
+    if match:
+        f100_val = match.group(1).strip()
+
+    # Observation propre = sans le préfixe [Feuille topo 1/100: ...]
+    obs_clean = _re.sub(r'\[Feuille topo 1/100:[^\]]*\]', '', obs_full)
+    obs_clean = obs_clean.strip(' —\n').strip()
+
     return {
-        'fiche_numero':  fiche_dict.get('fiche_numero', ''),
+        'fiche_numero':   fiche_dict.get('fiche_numero', ''),
         'n_autorisation': fiche_dict.get('n_autorisation', ''),
         'metrage':        fiche_dict.get('metrage', ''),
         'long_2':         fiche_dict.get('long_2', ''),
         'x_coord':        fiche_dict.get('x_coord', ''),
         'y_coord':        fiche_dict.get('y_coord', ''),
-        'f100':           fiche_dict.get('observation', ''),  # feuille topo extraite
+        'f100':           f100_val or fiche_dict.get('caidat', ''),
         'caidat':         fiche_dict.get('caidat', ''),
         'date_pv':        fiche_dict.get('date_pv', ''),
         'date_edition':   dt.now().strftime('%d/%m/%Y'),
         'accord':         fiche_dict.get('accord', 'non'),
-        'observation':    fiche_dict.get('observation', ''),
+        'observation':    obs_clean,
     }
 
 
