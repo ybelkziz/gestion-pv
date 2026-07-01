@@ -224,7 +224,7 @@ def draw_fiche(c, data, logo_path=LOGO_PATH, footer_path=FOOTER_PATH):
     # OUI si l'un des mots-clés est détecté
     conc_mots = ['concurrence', 'appel', 'apc', 'zoning',
                  'appel public', 'appel a la concurrence',
-                 'objet appel', 'zone appel', 'permis']
+                 'objet appel', 'zone appel']
     in_concurrence = any(m in obs_lower for m in conc_mots)
 
     # ── Règle 3 : rayon d'autres AMA ─────────────────────────────
